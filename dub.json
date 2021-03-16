@@ -1,0 +1,13 @@
+{
+	"authors": [
+		"grayson"
+	],
+	"copyright": "Copyright © 2021, TheGag96",
+	"dependencies": {
+		"argsd": "~>1.0.0",
+		"dyaml": "~>0.8.3"
+	},
+	"description": "A mod manager for DS Pokemon games",
+	"license": "free beer",
+	"name": "pokemods"
+}
