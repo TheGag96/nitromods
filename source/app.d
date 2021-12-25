@@ -144,32 +144,21 @@ int build(string newRomFile) {
 
     std.file.write(CUSTOM_OVERLAY_PATH, projInfo.customOverlayData);
 
-    auto narchivePath = buildPath(thisExePath.dirName, "Narchive.exe");
-
-    version (Windows) {
-      auto narchiveCmd = [narchivePath];
-    }
-    else {
-      auto narchiveCmd = ["wine", narchivePath];
-    }
+    auto knarcPath = buildPath(thisExePath.dirName, "knarc");
 
     auto narcPath    = buildPath(ROM_FILES_FOLDER, "data", "data", "weather_sys.narc");
     auto extractPath = buildPath(TEMP_FOLDER, "weather_sys");
 
     mkdir(extractPath);
 
-    writeln("Extracting...");
-
-    auto narchiveResult = execute( narchiveCmd ~ [
-      "extract", narcPath,
-      "-o", extractPath,
+    auto knarcResult = execute( [
+      knarcPath, "-d", extractPath, "-u", narcPath,
     ]);
 
     copy(CUSTOM_OVERLAY_PATH, buildPath(extractPath, "weather_sys_09"));
 
-    writeln("Creating...");
-    narchiveResult = execute( narchiveCmd ~ [
-      "create", narcPath, extractPath,
+    knarcResult = execute( [
+      knarcPath, "-d", extractPath, "-p", narcPath,
     ]);
   }
 
@@ -313,19 +302,19 @@ void patchAllCode(ref Mod mod, ref ProjectInfo projInfo) {
     if (codePatch.destination == "custom") {
       //handle new code
       codeAddr = customOverlayAdd(projInfo, extractMachineCode(compiledPath));
-      writefln("Patched new code %s at %X", codePatch.file.baseName, codeAddr);
+      debug writefln("Patched new code %s at %X", codePatch.file.baseName, codeAddr);
     }
     else {
       codeAddr = getAddr(projInfo, codePatch.destination, codePatch.offset);
       patch(getDestinationFile(codePatch.destination), extractMachineCode(compiledPath), codePatch.offset);
-      writefln("Patched existing code with %s at %X", codePatch.file.baseName, codeAddr);
+      debug writefln("Patched existing code with %s at %X", codePatch.file.baseName, codeAddr);
     }
 
     foreach (ref hijack; codePatch.hijacks) {
       uint blInstruction = makeBl(codeAddr - getAddr(projInfo, hijack.destination, hijack.offset));
 
       patch(getDestinationFile(hijack.destination), nativeToLittleEndian(blInstruction)[], hijack.offset);
-      writefln("  Writing hijack to %s: %X to %X", hijack.destination, getAddr(projInfo, hijack.destination, hijack.offset), codeAddr);
+      debug writefln("  Writing hijack to %s: %X to %X", hijack.destination, getAddr(projInfo, hijack.destination, hijack.offset), codeAddr);
     }
 
     symbols ~= Symbol(codePatch.name, codeAddr);
