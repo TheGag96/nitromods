@@ -7,6 +7,8 @@ enum ROM_FILES_FOLDER          = "romfiles";
 enum ROM_FILES_ORIGINAL_FOLDER = "romfiles_original";
 enum TEMP_FOLDER               = "tmp_build";
 enum CUSTOM_OVERLAY_FILE       = "overlay_custom.bin";
+enum CUSTOM_OVERLAY_PATH       = buildPath(ROM_FILES_ORIGINAL_FOLDER, "overlay", "overlay_custom.bin");
+enum PREPROCESS_SOURCE_PATH    = buildPath(TEMP_FOLDER, "preprocessed");
 
 enum CUSTOM_OVERLAY_ADDRESS   = 0x023C8000;
 enum CUSTOM_OVERLAY_FILE_SIZE = 1024*96;
@@ -77,7 +79,7 @@ int init(string romFile) {
 	]);
 
 	{
-		auto customOverlayFile = File(buildPath(ROM_FILES_ORIGINAL_FOLDER, "overlay", "overlay_custom.bin"), "w");
+		auto customOverlayFile = File(CUSTOM_OVERLAY_PATH, "wb");
 
 		uint[1] zero;
 		foreach (i; 0..CUSTOM_OVERLAY_FILE_SIZE/4) {
@@ -110,7 +112,8 @@ int build(string newRomFile) {
   }
 
   mkdirRecurse(TEMP_FOLDER);
-  //scope (exit) rmdirRecurse(TEMP_FOLDER);
+  mkdirRecurse(PREPROCESS_SOURCE_PATH);
+  scope (exit) rmdirRecurse(TEMP_FOLDER);
 
   ProjectInfo projInfo = getProjectInfo();
 
@@ -127,9 +130,41 @@ int build(string newRomFile) {
   	restoreFile(x);
   }
 
+  installCustomOverlay();
+
   auto mods = findMods();
 	foreach (ref mod; mods) {
 		patchAllCode(mod, projInfo);
+	}
+
+	{
+		auto narchivePath = buildPath(thisExePath.dirName, "Narchive.exe");
+
+		version (Windows) {
+			auto narchiveCmd = [narchivePath];
+		}
+		else {
+			auto narchiveCmd = ["wine", narchivePath];
+		}
+
+		auto narcPath    = buildPath(ROM_FILES_FOLDER, "data", "data", "weather_sys.narc");
+		auto extractPath = buildPath(TEMP_FOLDER, "weather_sys");
+
+		mkdir(extractPath);
+
+		writeln("Extracting...");
+
+		auto narchiveResult = execute( narchiveCmd ~ [
+			"extract", narcPath,
+			"-o", extractPath,
+		]);
+
+		copy(CUSTOM_OVERLAY_PATH, buildPath(extractPath, "weather_sys_09"));
+
+		writeln("Creating...");
+		narchiveResult = execute( narchiveCmd ~ [
+			"create", narcPath, extractPath,
+		]);
 	}
 
   auto cmdResult = execute([
@@ -150,7 +185,7 @@ int build(string newRomFile) {
 
 
 struct Mod {
-	string configPath;
+	string configPath, modPath;
 	string name, author, version_, description;
 
 	struct CodePatch {
@@ -170,6 +205,9 @@ struct Mod {
 
 struct ProjectInfo {
 	uint[] overlayOffsets;
+
+	File customOverlayFile;
+	uint customOverlayCurrentOffset;
 }
 
 Mod[] findMods() {
@@ -189,6 +227,7 @@ Mod parseModInfo(string path) {
 	Mod result;
 
 	result.configPath = path;
+	result.modPath    = path.dirName;
 
 	Node root = Loader.fromFile(path).load();
 
@@ -198,8 +237,6 @@ Mod parseModInfo(string path) {
 	result.description = root["description"].as!string;
 
 	if (auto code = "code" in root) {
-		//if (code)
-
 		foreach (ref Node codeNode; *code) {
 			Mod.CodePatch codePatch;
 			
@@ -239,31 +276,48 @@ Mod parseModInfo(string path) {
 }
 
 void patchAllCode(ref Mod mod, ref ProjectInfo projInfo) {
+	auto preprocessCodePath = buildPath(PREPROCESS_SOURCE_PATH, mod.name);
+	mkdirRecurse(preprocessCodePath);
+
 	foreach (ref codePatch; mod.code) {
-		string compiledPath = compile(mod, codePatch.file);
-		uint codeAddr = getAddr(projInfo, codePatch.destination, codePatch.offset);
+		string sourceFile = buildPath(mod.modPath, "code", codePatch.file);
+
+		if ([".s", ".asm", ".c"].canFind(codePatch.file.extension)) {
+			sourceFile = preprocessSource(preprocessCodePath, sourceFile);
+		}
+
+		string compiledPath = compile(mod, sourceFile);
+
+		uint codeAddr;
 
 		if (codePatch.destination == "custom") {
 			//handle new code
+			codeAddr = customOverlayAdd(projInfo, extractMachineCode(compiledPath));
+			writefln("Patched new code %s at %X", codePatch.file.baseName, codeAddr);
 		}
 		else {
+			codeAddr = getAddr(projInfo, codePatch.destination, codePatch.offset);
 			patch(getDestinationFile(codePatch.destination), extractMachineCode(compiledPath), codePatch.offset);
+			writefln("Patched existing code with %s at %X", codePatch.file.baseName, codeAddr);
 		}
 
 		foreach (ref hijack; codePatch.hijacks) {
 			uint blInstruction = makeBl(codeAddr - getAddr(projInfo, hijack.destination, hijack.offset));
 
 			patch(getDestinationFile(hijack.destination), nativeToLittleEndian(blInstruction)[], hijack.offset);
+			writefln("  Writing hijack to %s: %X to %X", hijack.destination, getAddr(projInfo, hijack.destination, hijack.offset), codeAddr);
 		}
 	}
 }
 
-File[string] filesOpen;
+void patch(File destFile, ubyte[] data, uint offset) {
+	destFile.seek(offset);
+	destFile.rawWrite(data);
+}
 
-void patch(string destFile, ubyte[] data, uint offset) {
-	auto file = File(destFile, "r+");
-	file.seek(offset);
-	file.rawWrite(data);
+void patch(string destPath, ubyte[] data, uint offset) {
+	auto file = File(destPath, "rb+");
+	patch(file, data, offset);
 }
 
 string compile(ref Mod mod, string filename) {
@@ -290,14 +344,10 @@ string compile(ref Mod mod, string filename) {
 		default: break;
 	}
 
-	string sourcePath = buildPath(mod.configPath.dirName, "code", filename);
-	string outFolder  = buildPath(TEMP_FOLDER, mod.name, filename.dirName);
-	string outPath    = buildPath(outFolder, filename.baseName.setExtension(".o"));
-
-	mkdirRecurse(outFolder);
+	string outPath    = buildPath(filename.dirName, filename.baseName.setExtension(".o"));
 
 	auto cmdResult = execute(
-		[program] ~ options ~ ["-c", sourcePath, "-o", outPath]
+		[program] ~ options ~ ["-c", filename, "-o", outPath]
 	);
 
 	return outPath;
@@ -305,7 +355,7 @@ string compile(ref Mod mod, string filename) {
 
 string getDestinationFile(string destination) {
 	if (destination == "custom") {
-		return buildPath(ROM_FILES_FOLDER, "overlay", "overlay_custom.bin");
+		return CUSTOM_OVERLAY_PATH;
 	}
 	else if (destination == "arm9") {
 		return buildPath(ROM_FILES_FOLDER, "arm9.bin");
@@ -348,20 +398,32 @@ ubyte[] extractMachineCode(string path) {
 	string tempOutputPath = path.setExtension(".bin");
 
 	auto cmdResult = execute([objcopyPath, "-O", "binary", "-j", ".text", path, tempOutputPath]);
-	cmdResult      = execute(["od", "-An", "-t", "x1", tempOutputPath]);
 
-	return cmdResult
-		.output
-    .filter!(x => (x >= 'a' && x <= 'f') || (x >= 'A' && x <= 'F') || (x >= '0' && x <= '9'))
-    .chunks(2)
-    .map!(x => x.to!ubyte(16))
-    .array;
+	return cast(ubyte[]) read(tempOutputPath);
+}
+
+string preprocessSource(string destFolder, string sourceFile) {
+	//TODO: actually do something smart here
+
+	string result = buildPath(destFolder, sourceFile.baseName);
+	copy(sourceFile, result);
+
+	return result;
+}
+
+uint customOverlayAdd(ref ProjectInfo projInfo, ubyte[] data) {
+	uint result = projInfo.customOverlayCurrentOffset + CUSTOM_OVERLAY_ADDRESS;
+
+	projInfo.customOverlayFile.rawWrite(data);
+	projInfo.customOverlayCurrentOffset += data.length;
+
+	return result;
 }
 
 ProjectInfo getProjectInfo() {
 	ProjectInfo result;
 
-	auto overlayTableFile = File(buildPath(ROM_FILES_FOLDER, "arm9ovltable.bin"), "r");
+	auto overlayTableFile = File(buildPath(ROM_FILES_FOLDER, "arm9ovltable.bin"), "rb");
 
 	enum OVERLAY_TABLE_ENTRY_SIZE = 0x20;
 	uint curOffset = 0x4;  //second word in each entry is location the overlay will load to
@@ -382,7 +444,20 @@ ProjectInfo getProjectInfo() {
 
 	overlayTableFile.close();
 
+	result.customOverlayFile = File(CUSTOM_OVERLAY_PATH, "rb+");
+
 	return result;
+}
+
+void installCustomOverlay() {
+	// Thanks to: Mikelan98, Nomura: ARM9 Expansion Subroutine (pokehacking.com/r/20041000)
+
+	//TODO: Support other ROMS
+
+	auto arm9File = File(buildPath(ROM_FILES_FOLDER, "arm9.bin"), "rb+");
+
+	patch(arm9File, [0xFC, 0xB5, 0x05, 0x48, 0xC0, 0x46, 0x41, 0x21, 0x09, 0x22, 0x02, 0x4D, 0xA8, 0x47, 0x00, 0x20, 0x03, 0x21, 0xFC, 0xBD, 0xA5, 0x6A, 0x00, 0x02, 0x00, 0x80, 0x3C, 0x02], 0x100E20);
+	patch(arm9File, [0x00, 0xF1, 0xB4, 0xF8], 0xCB4);
 }
 
 uint makeBl(int Value) {
