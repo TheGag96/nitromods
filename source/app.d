@@ -17,6 +17,44 @@ enum CUSTOM_OVERLAY_HEADER_SIZE = 0x20;
 
 string gDevkitproPath, gDevkitarmPath;
 
+struct CustomOverlayGameData {
+  uint initSubOffset;
+  ubyte[] initSubCode;
+
+  uint branchOffset;
+  ubyte[] branchCode;
+
+  string narcFile;
+  uint narcSubfile;
+}
+
+enum GameVer {
+  DiamondEng,    // ADAE
+  PearlEng,      // APAE
+  PlatinumEng,   // CPUE
+  HeartGoldEng,  // IPKE
+  SoulSilverEng, // IPGE
+  DiamondSpa,    // ADAS
+  PearlSpa,      // APAS
+  PlatinumSpa,   // CPUS
+  HeartGoldSpa,  // IPKS
+  SoulSilverSpa, // IPGS
+}
+
+// Thanks to: Mikelan98, Nomura: ARM9 Expansion Subroutine (pokehacking.com/r/20041000)
+static immutable CustomOverlayGameData[] CO_GAME_INFO = [
+  GameVer.DiamondEng    : { 0x1064EC, hex!"FC B5 05 48 C0 46 41 21 09 22 02 4D A8 47 00 20 03 21 FC BD F1 64 00 02 00 80 3C 02", 0xC80, hex!"05 F1 34 FC", "data/weather_sys.narc", 9 },
+  GameVer.PearlEng      : { 0x1064EC, hex!"FC B5 05 48 C0 46 41 21 09 22 02 4D A8 47 00 20 03 21 FC BD F1 64 00 02 00 80 3C 02", 0xC80, hex!"05 F1 34 FC", "data/weather_sys.narc", 9 },
+  GameVer.PlatinumEng   : { 0x100E20, hex!"FC B5 05 48 C0 46 41 21 09 22 02 4D A8 47 00 20 03 21 FC BD A5 6A 00 02 00 80 3C 02", 0xCB4, hex!"00 F1 B4 F8", "data/weather_sys.narc", 9 },
+  GameVer.HeartGoldEng  : { 0x110334, hex!"FC B5 05 48 C0 46 1C 21 00 22 02 4D A8 47 00 20 03 21 FC BD 09 75 00 02 00 80 3C 02", 0xCD0, hex!"0F F1 30 FB", "a/0/2/8",               0 },
+  GameVer.SoulSilverEng : { 0x110334, hex!"FC B5 05 48 C0 46 1C 21 00 22 02 4D A8 47 00 20 03 21 FC BD 09 75 00 02 00 80 3C 02", 0xCD0, hex!"0F F1 30 FB", "a/0/2/8",               0 },
+  GameVer.DiamondSpa    : { 0x10668C, hex!"FC B5 05 48 C0 46 41 21 09 22 02 4D A8 47 00 20 03 21 FC BD F1 64 00 02 00 80 3C 02", 0xC80, hex!"05 F1 04 FD", "data/weather_sys.narc", 9 },
+  GameVer.PearlSpa      : { 0x10668C, hex!"FC B5 05 48 C0 46 41 21 09 22 02 4D A8 47 00 20 03 21 FC BD F1 64 00 02 00 80 3C 02", 0xC80, hex!"05 F1 04 FD", "data/weather_sys.narc", 9 },
+  GameVer.PlatinumSpa   : { 0x10101C, hex!"FC B5 05 48 C0 46 41 21 09 22 02 4D A8 47 00 20 03 21 FC BD B9 6A 00 02 00 80 3C 02", 0xCB4, hex!"00 F1 B2 F9", "data/weather_sys.narc", 9 },
+  GameVer.HeartGoldSpa  : { 0x110354, hex!"FC B5 05 48 C0 46 1C 21 00 22 02 4D A8 47 00 20 03 21 FC BD 09 75 00 02 00 80 3C 02", 0xCD0, hex!"0F F1 40 FB", "a/0/2/8",               0 },
+  GameVer.SoulSilverSpa : { 0x110354, hex!"FC B5 05 48 C0 46 1C 21 00 22 02 4D A8 47 00 20 03 21 FC BD 09 75 00 02 00 80 3C 02", 0xCD0, hex!"0F F1 40 FB", "a/0/2/8,",              0 },
+];
+
 int main(string[] args) {
   if (args.length < 2) {
     stderr.writeln("Error: idiot");
@@ -132,7 +170,7 @@ int build(string newRomFile) {
     restoreFile(x);
   }
 
-  installCustomOverlay();
+  installCustomOverlay(projInfo);
 
   auto mods = findMods();
   foreach (ref mod; mods) {
@@ -146,7 +184,9 @@ int build(string newRomFile) {
 
     auto knarcPath = buildPath(thisExePath.dirName, "knarc");
 
-    auto narcPath    = buildPath(ROM_FILES_FOLDER, "data", "data", "weather_sys.narc");
+    auto coGameData = &CO_GAME_INFO[projInfo.gameVer];
+
+    auto narcPath    = buildPath(ROM_FILES_FOLDER, "data", coGameData.narcFile);
     auto extractPath = buildPath(TEMP_FOLDER, "weather_sys");
 
     mkdir(extractPath);
@@ -155,7 +195,7 @@ int build(string newRomFile) {
       knarcPath, "-d", extractPath, "-u", narcPath,
     ]);
 
-    copy(CUSTOM_OVERLAY_PATH, buildPath(extractPath, "weather_sys_09"));
+    copy(CUSTOM_OVERLAY_PATH, buildPath(extractPath, format("weather_sys_%02d", coGameData.narcSubfile)));
 
     knarcResult = execute( [
       knarcPath, "-d", extractPath, "-p", narcPath,
@@ -187,6 +227,7 @@ struct Mod {
   struct CodePatch {
     string file, destination, name;
     uint offset;
+    bool addNewCode;
 
     struct Hijack {
       string destination;
@@ -204,6 +245,8 @@ struct ProjectInfo {
 
   ubyte[] customOverlayData;
   uint customOverlayCurrentOffset;
+
+  GameVer gameVer;
 }
 
 struct Symbol {
@@ -259,7 +302,7 @@ Mod parseModInfo(string path) {
         codePatch.offset = (*offset).as!uint;
       }
       else {
-        codePatch.offset = 0; //auto
+        codePatch.addNewCode = true;
       }
 
       if (auto hijacks = "hijacks" in codeNode) {
@@ -299,7 +342,7 @@ void patchAllCode(ref Mod mod, ref ProjectInfo projInfo) {
 
     uint codeAddr;
 
-    if (codePatch.destination == "custom") {
+    if (codePatch.destination == "custom" && codePatch.addNewCode) {
       //handle new code
       codeAddr = customOverlayAdd(projInfo, extractMachineCode(compiledPath));
       debug writefln("Patched new code %s at %X", codePatch.file.baseName, codeAddr);
@@ -321,12 +364,12 @@ void patchAllCode(ref Mod mod, ref ProjectInfo projInfo) {
   }
 }
 
-void patch(File destFile, ubyte[] data, uint offset) {
+void patch(File destFile, const(ubyte)[] data, uint offset) {
   destFile.seek(offset);
   destFile.rawWrite(data);
 }
 
-void patch(string destPath, ubyte[] data, uint offset) {
+void patch(string destPath, const(ubyte)[] data, uint offset) {
   auto file = File(destPath, "rb+");
   patch(file, data, offset);
 }
@@ -413,7 +456,7 @@ ubyte[] extractMachineCode(string path) {
   return cast(ubyte[]) read(tempOutputPath);
 }
 
-string preprocessSource(string destFolder, string sourceFile, Symbol[] symbols) {
+string preprocessSource(string destFolder, string sourceFile, const(Symbol)[] symbols) {
   //TODO: actually do something smart here
 
   auto app = appender!string;
@@ -438,7 +481,7 @@ string preprocessSource(string destFolder, string sourceFile, Symbol[] symbols) 
   return result;
 }
 
-uint customOverlayAdd(ref ProjectInfo projInfo, ubyte[] data) {
+uint customOverlayAdd(ref ProjectInfo projInfo, const(ubyte)[] data) {
   uint result = projInfo.customOverlayCurrentOffset + CUSTOM_OVERLAY_ADDRESS;
 
   auto start = projInfo.customOverlayCurrentOffset;
@@ -450,6 +493,10 @@ uint customOverlayAdd(ref ProjectInfo projInfo, ubyte[] data) {
 
 ProjectInfo getProjectInfo() {
   ProjectInfo result;
+
+  ////
+  // Overlay offsets
+  ////
 
   auto overlayTableFile = File(buildPath(ROM_FILES_FOLDER, "arm9ovltable.bin"), "rb");
 
@@ -472,6 +519,11 @@ ProjectInfo getProjectInfo() {
 
   overlayTableFile.close();
 
+
+  ////
+  // Custom overlay file
+  ////
+
   result.customOverlayData = cast(ubyte[]) read(CUSTOM_OVERLAY_PATH);
 
   if (result.customOverlayData.length < CUSTOM_OVERLAY_FILE_SIZE) {
@@ -480,18 +532,41 @@ ProjectInfo getProjectInfo() {
 
   result.customOverlayCurrentOffset = CUSTOM_OVERLAY_HEADER_SIZE;
 
+
+  ////
+  // Game code
+  ////
+
+  auto headerFile = File(buildPath(ROM_FILES_FOLDER, "header.bin"), "rb");
+
+  headerFile.seek(0xC);
+  char[4] gameCode;
+  headerFile.rawRead(gameCode[]);
+
+  switch (gameCode) {
+    case "ADAE": result.gameVer = GameVer.DiamondEng;    break;
+    case "APAE": result.gameVer = GameVer.PearlEng;      break;
+    case "CPUE": result.gameVer = GameVer.PlatinumEng;   break;
+    case "IPKE": result.gameVer = GameVer.HeartGoldEng;  break;
+    case "IPGE": result.gameVer = GameVer.SoulSilverEng; break;
+    case "ADAS": result.gameVer = GameVer.DiamondSpa;    break;
+    case "APAS": result.gameVer = GameVer.PearlSpa;      break;
+    case "CPUS": result.gameVer = GameVer.PlatinumSpa;   break;
+    case "IPKS": result.gameVer = GameVer.HeartGoldSpa;  break;
+    case "IPGS": result.gameVer = GameVer.SoulSilverSpa; break;
+    default: throw new Exception("Game version unsupported!");
+  }
+
   return result;
 }
 
-void installCustomOverlay() {
-  // Thanks to: Mikelan98, Nomura: ARM9 Expansion Subroutine (pokehacking.com/r/20041000)
-
-  //TODO: Support other ROMS
-
+void installCustomOverlay(ref ProjectInfo projInfo) {
   auto arm9File = File(buildPath(ROM_FILES_FOLDER, "arm9.bin"), "rb+");
 
-  patch(arm9File, [0xFC, 0xB5, 0x05, 0x48, 0xC0, 0x46, 0x41, 0x21, 0x09, 0x22, 0x02, 0x4D, 0xA8, 0x47, 0x00, 0x20, 0x03, 0x21, 0xFC, 0xBD, 0xA5, 0x6A, 0x00, 0x02, 0x00, 0x80, 0x3C, 0x02], 0x100E20);
-  patch(arm9File, [0x00, 0xF1, 0xB4, 0xF8], 0xCB4);
+  auto coGameData = &CO_GAME_INFO[projInfo.gameVer];
+
+  patch(arm9File, coGameData.initSubCode, coGameData.initSubOffset);
+  patch(arm9File, coGameData.branchCode,  coGameData.branchOffset);
 }
 
 uint makeBl(int Value) {
@@ -527,5 +602,20 @@ uint makeBl(int Value) {
 
   return FirstHalf | (SecondHalf << 16);
 }
+
+enum hex(string s) = () {
+  import std.algorithm : filter, map;
+  import std.array     : array;
+  import std.conv      : to;
+  import std.range     : chunks;
+  import std.uni       : isSpace;
+
+  return s
+    .filter!(x => !isSpace(x))
+    .chunks(2)
+    //.map!((x) { enforce(x.length == 2); return x; })
+    .map!(x => x.to!ubyte(16))
+    .array;
+}();
 
 
