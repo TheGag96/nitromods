@@ -5,14 +5,14 @@ enum MOD_INFO_FILE             = "mod.yaml";
 enum PROJECT_INFO_FILE         = "project.yaml";
 enum ROM_FILES_FOLDER          = "romfiles";
 enum ROM_FILES_ORIGINAL_FOLDER = "romfiles_original";
-enum TEMP_FOLDER               = "tmp_build";
+enum TEMP_FOLDER               = "tmp_pokemods";
 enum CUSTOM_OVERLAY_FILE       = "overlay_custom.bin";
 enum CUSTOM_OVERLAY_PATH       = buildPath(ROM_FILES_FOLDER,          "overlay", "overlay_custom.bin");
 enum CUSTOM_OVERLAY_ORIG_PATH  = buildPath(ROM_FILES_ORIGINAL_FOLDER, "overlay", "overlay_custom.bin");
 enum PREPROCESS_SOURCE_PATH    = buildPath(TEMP_FOLDER, "preprocessed");
 
 enum CUSTOM_OVERLAY_ADDRESS     = 0x023C8000;
-enum CUSTOM_OVERLAY_FILE_SIZE   = 1024*88;
+enum CUSTOM_OVERLAY_FILE_SIZE   = 1024*96;
 enum CUSTOM_OVERLAY_HEADER_SIZE = 0x20;
 
 string gDevkitproPath, gDevkitarmPath;
@@ -55,9 +55,13 @@ static immutable CustomOverlayGameData[] CO_GAME_INFO = [
   GameVer.SoulSilverSpa : { 0x110354, hex!"FC B5 05 48 C0 46 1C 21 00 22 02 4D A8 47 00 20 03 21 FC BD 09 75 00 02 00 80 3C 02", 0xCD0, hex!"0F F1 40 FB", "a/0/2/8,",              0 },
 ];
 
+static immutable FOLLOWING_PLAT_CO_BRANCH = hex!"E9 F0 D0 FF";
+enum FOLLOWING_PLAT_CO_FREE_SPACE_START = 0x13CD0; //subject to change if the mod is updated
+enum FOLLOWING_PLAT_CO_SUBFILE          = 65;
+
 int main(string[] args) {
   if (args.length < 2) {
-    stderr.writeln("Error: idiot");
+    writeln("Error: idiot");
     return 1;
   }
 
@@ -65,7 +69,7 @@ int main(string[] args) {
   gDevkitarmPath = environment.get("DEVKITARM");
 
   if (!gDevkitproPath || !gDevkitarmPath) {
-    stderr.writeln("Error: DEVKITPRO and DEVKITARM must be in your PATH.\n",
+    writeln("Error: DEVKITPRO and DEVKITARM must be in your PATH.\n",
                    "Ensure DevkitARM is installed and try again.");
     return 1;
   }
@@ -73,7 +77,7 @@ int main(string[] args) {
   switch (args[1]) {
     case "init":  
       if (args.length < 3) {
-        stderr.writeln("Error: Need ROM filename.");
+        writeln("Error: Need ROM filename.");
         return 1;
       }
       return init(args[2]);
@@ -83,27 +87,35 @@ int main(string[] args) {
       return build(newRomFile);
 
     default: 
-      stderr.writeln("Error: Unrecognized command.");
+      writeln("Error: Unrecognized command.");
       return 1;
   }
 }
 
 int init(string romFile) {
   if (exists(PROJECT_INFO_FILE)) {
-    stderr.writeln("Error: Project already exists here.");
+    writeln("Error: Project already exists here.");
     return 1;
   }
 
-  mkdirRecurse(MODS_FOLDER);
-
   foreach (folder; [ROM_FILES_FOLDER, ROM_FILES_ORIGINAL_FOLDER]) {
     if (exists(folder)) {
-      stderr.writeln("Error: `", folder, "` already exists. Please move/remove it and try again.");
+      writeln("Error: `", folder, "` already exists. Please move/remove it and try again.");
       return 1;
     }   
   }
 
   mkdirRecurse(ROM_FILES_ORIGINAL_FOLDER);
+
+  if (exists(TEMP_FOLDER)) {
+    writeln("Error: `", TEMP_FOLDER, "` exists. Please move/delete it manually.");
+    return 1;
+  }
+
+  mkdirRecurse(TEMP_FOLDER);
+  scope (exit) rmdirRecurse(TEMP_FOLDER);
+
+  mkdirRecurse(MODS_FOLDER);
 
   auto cmdResult = execute([
     "ndstool", "-x", romFile, 
@@ -119,11 +131,26 @@ int init(string romFile) {
   ]);
 
   {
-    auto customOverlayFile = File(CUSTOM_OVERLAY_ORIG_PATH, "wb");
+    GameVer gameVer = extractGameVer(ROM_FILES_ORIGINAL_FOLDER);
 
-    uint[1] zero;
-    foreach (i; 0..CUSTOM_OVERLAY_FILE_SIZE/4) {
-      customOverlayFile.rawWrite(zero[]);
+    ubyte[4] coBranchCode = extractCOBranchCode(gameVer, ROM_FILES_ORIGINAL_FOLDER);
+
+    bool isFollowingPlatBranch = gameVer == GameVer.PlatinumEng && coBranchCode == FOLLOWING_PLAT_CO_BRANCH;
+
+    if (coBranchCode == CO_GAME_INFO[gameVer].branchCode || isFollowingPlatBranch) {
+      //custom overlay already exists
+      auto coSubfile = unpackCustomOverlayNarc(gameVer, isFollowingPlatBranch, ROM_FILES_ORIGINAL_FOLDER);
+      copy(coSubfile, CUSTOM_OVERLAY_ORIG_PATH);
+    }
+    else {
+      //make new custom overlay
+
+      auto customOverlayFile = File(CUSTOM_OVERLAY_ORIG_PATH, "wb");
+
+      uint[1] zero;
+      foreach (i; 0..CUSTOM_OVERLAY_FILE_SIZE/4) {
+        customOverlayFile.rawWrite(zero[]);
+      }
     }
   }
 
@@ -142,12 +169,12 @@ int build(string newRomFile) {
   import std.file, std.algorithm;
 
   if (!(exists(MODS_FOLDER) && isDir(MODS_FOLDER))) {
-    stderr.writeln("Error: Mods folder not found!");
+    writeln("Error: Mods folder not found!");
     return 1;
   }
 
   if (exists(TEMP_FOLDER)) {
-    stderr.writeln("Error: `", TEMP_FOLDER, "` exists. Please move/delete it manually.");
+    writeln("Error: `", TEMP_FOLDER, "` exists. Please move/delete it manually.");
     return 1;
   }
 
@@ -170,7 +197,9 @@ int build(string newRomFile) {
     restoreFile(x);
   }
 
-  installCustomOverlay(projInfo);
+  if (!projInfo.customOverlay.alreadyInstalled) {
+    installCustomOverlay(projInfo);
+  }
 
   auto mods = findMods();
   foreach (ref mod; mods) {
@@ -178,28 +207,17 @@ int build(string newRomFile) {
   }
 
   {
-    projInfo.customOverlayData[0..4] = nativeToLittleEndian!uint(projInfo.customOverlayCurrentOffset);
+    auto coStart = projInfo.customOverlay.startOffset;
+    projInfo.customOverlay.header.nextFreeSpace = projInfo.customOverlay.currentOffset - coStart;
+    projInfo.customOverlay.data[coStart..coStart+COHeader.sizeof] = toRawBytes!COHeader(projInfo.customOverlay.header);
 
-    std.file.write(CUSTOM_OVERLAY_PATH, projInfo.customOverlayData);
+    std.file.write(CUSTOM_OVERLAY_PATH, projInfo.customOverlay.data);
 
-    auto knarcPath = buildPath(thisExePath.dirName, "knarc");
+    auto coSubfile = unpackCustomOverlayNarc(projInfo.gameVer, projInfo.isFollowingPlatinum);
 
-    auto coGameData = &CO_GAME_INFO[projInfo.gameVer];
+    copy(CUSTOM_OVERLAY_PATH, coSubfile);
 
-    auto narcPath    = buildPath(ROM_FILES_FOLDER, "data", coGameData.narcFile);
-    auto extractPath = buildPath(TEMP_FOLDER, "weather_sys");
-
-    mkdir(extractPath);
-
-    auto knarcResult = execute( [
-      knarcPath, "-d", extractPath, "-u", narcPath,
-    ]);
-
-    copy(CUSTOM_OVERLAY_PATH, buildPath(extractPath, format("weather_sys_%02d", coGameData.narcSubfile)));
-
-    knarcResult = execute( [
-      knarcPath, "-d", extractPath, "-p", narcPath,
-    ]);
+    packCustomOverlayNarc(projInfo.gameVer, projInfo.isFollowingPlatinum);
   }
 
   auto cmdResult = execute([
@@ -240,13 +258,25 @@ struct Mod {
   CodePatch[] code;
 }
 
+struct COHeader {
+  uint nextFreeSpace;
+}
+static assert(COHeader.sizeof <= CUSTOM_OVERLAY_HEADER_SIZE);
+
 struct ProjectInfo {
   uint[] overlayOffsets;
 
-  ubyte[] customOverlayData;
-  uint customOverlayCurrentOffset;
+  struct CustomOverlay {
+    bool alreadyInstalled;
+    COHeader header;
+    ubyte[] data;
+    uint startOffset;
+    uint currentOffset;
+  }
+  CustomOverlay customOverlay;
 
   GameVer gameVer;
+  bool isFollowingPlatinum;
 }
 
 struct Symbol {
@@ -327,9 +357,9 @@ void patchAllCode(ref Mod mod, ref ProjectInfo projInfo) {
   auto preprocessCodePath = buildPath(PREPROCESS_SOURCE_PATH, mod.name);
   mkdirRecurse(preprocessCodePath);
 
-  Symbol[] symbols = [Symbol("Mod_Free_RAM", CUSTOM_OVERLAY_ADDRESS + projInfo.customOverlayCurrentOffset)];
+  Symbol[] symbols = [Symbol("Mod_Free_RAM", CUSTOM_OVERLAY_ADDRESS + projInfo.customOverlay.currentOffset)];
 
-  projInfo.customOverlayCurrentOffset += mod.freeRAM;
+  projInfo.customOverlay.currentOffset += mod.freeRAM;
 
   foreach (ref codePatch; mod.code) {
     string sourceFile = buildPath(mod.modPath, "code", codePatch.file);
@@ -457,8 +487,6 @@ ubyte[] extractMachineCode(string path) {
 }
 
 string preprocessSource(string destFolder, string sourceFile, const(Symbol)[] symbols) {
-  //TODO: actually do something smart here
-
   auto app = appender!string;
 
   string result = buildPath(destFolder, sourceFile.baseName);
@@ -482,11 +510,11 @@ string preprocessSource(string destFolder, string sourceFile, const(Symbol)[] sy
 }
 
 uint customOverlayAdd(ref ProjectInfo projInfo, const(ubyte)[] data) {
-  uint result = projInfo.customOverlayCurrentOffset + CUSTOM_OVERLAY_ADDRESS;
+  uint result = projInfo.customOverlay.currentOffset + CUSTOM_OVERLAY_ADDRESS;
 
-  auto start = projInfo.customOverlayCurrentOffset;
-  projInfo.customOverlayData[start..start+data.length] = data;
-  projInfo.customOverlayCurrentOffset += data.length;
+  auto start = projInfo.customOverlay.currentOffset;
+  projInfo.customOverlay.data[start..start+data.length] = data;
+  projInfo.customOverlay.currentOffset += data.length;
 
   return result;
 }
@@ -521,41 +549,40 @@ ProjectInfo getProjectInfo() {
 
 
   ////
-  // Custom overlay file
-  ////
-
-  result.customOverlayData = cast(ubyte[]) read(CUSTOM_OVERLAY_PATH);
-
-  if (result.customOverlayData.length < CUSTOM_OVERLAY_FILE_SIZE) {
-    result.customOverlayData.length = CUSTOM_OVERLAY_FILE_SIZE;
-  }
-
-  result.customOverlayCurrentOffset = CUSTOM_OVERLAY_HEADER_SIZE;
-
-
-  ////
   // Game code
   ////
 
-  auto headerFile = File(buildPath(ROM_FILES_FOLDER, "header.bin"), "rb");
+  result.gameVer = extractGameVer();
 
-  headerFile.seek(0xC);
-  char[4] gameCode;
-  headerFile.rawRead(gameCode[]);
 
-  switch (gameCode) {
-    case "ADAE": result.gameVer = GameVer.DiamondEng;    break;
-    case "APAE": result.gameVer = GameVer.PearlEng;      break;
-    case "CPUE": result.gameVer = GameVer.PlatinumEng;   break;
-    case "IPKE": result.gameVer = GameVer.HeartGoldEng;  break;
-    case "IPGE": result.gameVer = GameVer.SoulSilverEng; break;
-    case "ADAS": result.gameVer = GameVer.DiamondSpa;    break;
-    case "APAS": result.gameVer = GameVer.PearlSpa;      break;
-    case "CPUS": result.gameVer = GameVer.PlatinumSpa;   break;
-    case "IPKS": result.gameVer = GameVer.HeartGoldSpa;  break;
-    case "IPGS": result.gameVer = GameVer.SoulSilverSpa; break;
-    default: throw new Exception("Game version unsupported!");
+  ////
+  // Custom overlay file
+  ////
+
+  //Check if Following Platinum is the base
+  auto coBranchCode = extractCOBranchCode(result.gameVer);
+  if (result.gameVer == GameVer.PlatinumEng) {
+    result.isFollowingPlatinum = coBranchCode == FOLLOWING_PLAT_CO_BRANCH;
   }
+
+  result.customOverlay.alreadyInstalled = result.isFollowingPlatinum || coBranchCode == CO_GAME_INFO[result.gameVer].branchCode;
+  result.customOverlay.data = cast(ubyte[]) read(CUSTOM_OVERLAY_PATH);
+
+  if (result.customOverlay.data.length < CUSTOM_OVERLAY_FILE_SIZE) {
+    result.customOverlay.data.length = CUSTOM_OVERLAY_FILE_SIZE;
+  }
+
+  if (result.isFollowingPlatinum) {
+    result.customOverlay.startOffset = FOLLOWING_PLAT_CO_FREE_SPACE_START;
+  }
+  else {
+    result.customOverlay.startOffset = 0;
+  }
+
+  result.customOverlay.currentOffset = result.customOverlay.startOffset + CUSTOM_OVERLAY_HEADER_SIZE;
+
+  auto coStart = result.customOverlay.startOffset;
+  result.customOverlay.header = fromRawBytes!COHeader(result.customOverlay.data[coStart..$][0..COHeader.sizeof]);
 
   return result;
 }
@@ -567,6 +594,74 @@ void installCustomOverlay(ref ProjectInfo projInfo) {
 
   patch(arm9File, coGameData.initSubCode, coGameData.initSubOffset);
   patch(arm9File, coGameData.branchCode,  coGameData.branchOffset);
+}
+
+GameVer extractGameVer(string baseFolder = ROM_FILES_FOLDER) {
+  auto headerFile = File(buildPath(baseFolder, "header.bin"), "rb");
+
+  headerFile.seek(0xC);
+  char[4] gameCode;
+  headerFile.rawRead(gameCode[]);
+
+  switch (gameCode) {
+    case "ADAE": return GameVer.DiamondEng;
+    case "APAE": return GameVer.PearlEng;
+    case "CPUE": return GameVer.PlatinumEng;
+    case "IPKE": return GameVer.HeartGoldEng;
+    case "IPGE": return GameVer.SoulSilverEng;
+    case "ADAS": return GameVer.DiamondSpa;
+    case "APAS": return GameVer.PearlSpa;
+    case "CPUS": return GameVer.PlatinumSpa;
+    case "IPKS": return GameVer.HeartGoldSpa;
+    case "IPGS": return GameVer.SoulSilverSpa;
+    default: throw new Exception("Game version unsupported!");
+  }
+}
+
+ubyte[4] extractCOBranchCode(GameVer gameVer, string baseFolder = ROM_FILES_FOLDER) {
+  auto arm9File = File(buildPath(baseFolder, "arm9.bin"), "rb");
+
+  ubyte[4] branchCode;
+  arm9File.seek(CO_GAME_INFO[gameVer].branchOffset);
+  arm9File.rawRead(branchCode[]);
+
+  return branchCode;
+}
+
+string unpackCustomOverlayNarc(GameVer gameVer, bool isFollowingPlat, string baseFolder = ROM_FILES_FOLDER) {
+  auto knarcPath = buildPath(thisExePath.dirName, "knarc");
+
+  auto coGameData = &CO_GAME_INFO[gameVer];
+
+  auto narcPath    = buildPath(baseFolder, "data", coGameData.narcFile);
+  auto extractPath = buildPath(TEMP_FOLDER, "weather_sys");
+
+  mkdir(extractPath);
+
+  auto knarcResult = execute( [
+    knarcPath, "-d", extractPath, "-u", narcPath,
+  ]);
+
+  auto subfileNum = isFollowingPlat ? FOLLOWING_PLAT_CO_SUBFILE : coGameData.narcSubfile;
+
+  //knarc will unfortunatey not spit out predictable filenames. have to search the directory ourselves
+  auto re = regex(`weather_sys_[0]*` ~ subfileNum.to!string);
+  string subfile = dirEntries(extractPath, SpanMode.shallow).filter!(x => !matchFirst(x.name, re).empty).front.name;
+
+  return subfile;
+}
+
+void packCustomOverlayNarc(GameVer gameVer, bool isFollowingPlat, string baseFolder = ROM_FILES_FOLDER) {
+  auto knarcPath = buildPath(thisExePath.dirName, "knarc");
+
+  auto coGameData = &CO_GAME_INFO[gameVer];
+
+  auto narcPath    = buildPath(baseFolder, "data", coGameData.narcFile);
+  auto extractPath = buildPath(TEMP_FOLDER, "weather_sys");
+
+  auto knarcResult = execute( [
+    knarcPath, "-d", extractPath, "-p", narcPath,
+  ]);
 }
 
 uint makeBl(int Value) {
@@ -618,4 +713,71 @@ enum hex(string s) = () {
     .array;
 }();
 
+@trusted T fromRawBytes(T)(const ref ubyte[T.sizeof] bytes) if (safeAllBitPatterns!T) {
+  T result = *(cast(const(T)*) bytes.ptr);
 
+  version (BigEndian) {
+    swapEndianAllMembers(result);
+  }
+
+  return result;
+}
+
+@trusted ubyte[T.sizeof] toRawBytes(T)(const ref T thing) if (safeAllBitPatterns!T) {
+  version (BigEndian) {
+    T tmp = thing;
+    swapEndianAllMembers(tmp);
+    return (cast(const(ubyte)*) &tmp)[0..T.sizeof];
+  }
+  else {
+    return (cast(const(ubyte)*) &thing)[0..T.sizeof];
+  }
+}
+
+//don't use std.traits' version because it makes char[] tie in with autodecode
+alias ElementType(T : T[]) = T;
+
+enum safeAllBitPatterns(T) = () {
+  import std.traits : isArray, isStaticArray;
+
+  bool result = true;
+
+  static if (is(T == struct) || is(T == union)) {
+    static foreach (member; T.tupleof) {{
+      result = result && safeAllBitPatterns!(typeof(member));
+    }}
+  }
+  else static if (isStaticArray!T) {
+    result = safeAllBitPatterns!(ElementType!T);
+  }
+  else static if (is(T U : U*) || (isArray!T && !isStaticArray!T) || is(T : bool)) {
+    result = false;
+  }
+
+  return result;
+}();
+
+void swapEndianAllMembers(T)(ref T thing) {
+  import std.traits : isArray, isStaticArray;
+  import std.bitmanip : swapEndian;
+
+  static assert (!is(T == union), "Don't know how to handle unions, sorry");
+
+  foreach (member; thing.tupleof) {
+    alias M = typeof(member);
+    pragma(msg, M);
+
+    static assert (!is(M == union), "Don't know how to handle unions, sorry");
+    static if (is(M == struct)) {
+      swapEndianAllMembers(member);
+    }
+    else static if (isArray!M && ElementType!M.sizeof > 1) {
+      foreach (ref elem; member) {
+        elem = swapEndian(elem);
+      }
+    }
+    else static if (M.sizeof > 1) {
+      member = swapEndian(member);
+    }
+  }
+}
