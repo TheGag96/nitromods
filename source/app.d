@@ -403,6 +403,7 @@ string compile(ref Mod mod, string filename, string outDir) {
 
   switch (filename.extension) {
     case ".bin":
+    default:
       //don't compile binary files - just returned them to be patched as-is
       return filename;
 
@@ -417,8 +418,6 @@ string compile(ref Mod mod, string filename, string outDir) {
       program = buildPath(gDevkitarmPath, "bin/arm-none-eabi-as");
       options = ["-march=armv5te", "-mthumb", "-mthumb-interwork"];
       break;
-
-    default: break;
   }
 
   string outPath = buildPath(outDir, filename.baseName.setExtension(".o"));
