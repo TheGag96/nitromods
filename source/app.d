@@ -429,7 +429,7 @@ string compile(ref Mod mod, string filename, string outDir) {
   return outPath;
 }
 
-string getDestinationFile(string destination) {
+string getDestinationFileImpl(string destination) {
   if (destination == "custom") {
     return CUSTOM_OVERLAY_PATH;
   }
@@ -443,6 +443,8 @@ string getDestinationFile(string destination) {
 
   return "";
 }
+//remember result to reduce duplicate work
+alias getDestinationFile = memoize!getDestinationFileImpl;
 
 uint getAddr(ref ProjectInfo projInfo, string destination, uint offset) {
   import std.algorithm;
