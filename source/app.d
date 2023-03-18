@@ -14,48 +14,55 @@ enum CUSTOM_OVERLAY_PATH       = buildPath(ROM_FILES_FOLDER,          "overlay",
 enum CUSTOM_OVERLAY_ORIG_PATH  = buildPath(ROM_FILES_ORIGINAL_FOLDER, "overlay", "overlay_custom.bin");
 enum PREPROCESS_SOURCE_PATH    = buildPath(TEMP_FOLDER, "preprocessed");
 
-enum CUSTOM_OVERLAY_ADDRESS     = 0x023C8000;
 enum CUSTOM_OVERLAY_FILE_SIZE   = 1024*96;
 enum CUSTOM_OVERLAY_HEADER_SIZE = 0x20;
 
 string gDevkitproPath, gDevkitarmPath;
 
 struct CustomOverlayGameData {
+  uint loadAddress;
+
   uint initSubOffset;
   ubyte[] initSubCode;
 
   uint branchOffset;
   ubyte[] branchCode;
 
-  string narcFile;
-  uint narcSubfile;
+  string hostFile;
+  int hostSubfile;
+  enum USE_WHOLE_FILE = -1;
 }
 
 enum GameVer {
-  DiamondEng,    // ADAE
-  PearlEng,      // APAE
-  PlatinumEng,   // CPUE
-  HeartGoldEng,  // IPKE
-  SoulSilverEng, // IPGE
-  DiamondSpa,    // ADAS
-  PearlSpa,      // APAS
-  PlatinumSpa,   // CPUS
-  HeartGoldSpa,  // IPKS
-  SoulSilverSpa, // IPGS
+  DiamondEng,       // ADAE
+  PearlEng,         // APAE
+  PlatinumEng,      // CPUE
+  HeartGoldEng,     // IPKE
+  SoulSilverEng,    // IPGE
+  DiamondSpa,       // ADAS
+  PearlSpa,         // APAS
+  PlatinumSpa,      // CPUS
+  HeartGoldSpa,     // IPKS
+  SoulSilverSpa,    // IPGS
+
+  WildWorldUS,      // ADME
 }
 
 // Thanks to: Mikelan98, Nomura: ARM9 Expansion Subroutine (pokehacking.com/r/20041000)
-static immutable CustomOverlayGameData[] CO_GAME_INFO = [
-  GameVer.DiamondEng    : { 0x1064EC, hex!"FC B5 05 48 C0 46 41 21 09 22 02 4D A8 47 00 20 03 21 FC BD F1 64 00 02 00 80 3C 02", 0xC80, hex!"05 F1 34 FC", "data/weather_sys.narc", 9 },
-  GameVer.PearlEng      : { 0x1064EC, hex!"FC B5 05 48 C0 46 41 21 09 22 02 4D A8 47 00 20 03 21 FC BD F1 64 00 02 00 80 3C 02", 0xC80, hex!"05 F1 34 FC", "data/weather_sys.narc", 9 },
-  GameVer.PlatinumEng   : { 0x100E20, hex!"FC B5 05 48 C0 46 41 21 09 22 02 4D A8 47 00 20 03 21 FC BD A5 6A 00 02 00 80 3C 02", 0xCB4, hex!"00 F1 B4 F8", "data/weather_sys.narc", 9 },
-  GameVer.HeartGoldEng  : { 0x110334, hex!"FC B5 05 48 C0 46 1C 21 00 22 02 4D A8 47 00 20 03 21 FC BD 09 75 00 02 00 80 3C 02", 0xCD0, hex!"0F F1 30 FB", "a/0/2/8",               0 },
-  GameVer.SoulSilverEng : { 0x110334, hex!"FC B5 05 48 C0 46 1C 21 00 22 02 4D A8 47 00 20 03 21 FC BD 09 75 00 02 00 80 3C 02", 0xCD0, hex!"0F F1 30 FB", "a/0/2/8",               0 },
-  GameVer.DiamondSpa    : { 0x10668C, hex!"FC B5 05 48 C0 46 41 21 09 22 02 4D A8 47 00 20 03 21 FC BD F1 64 00 02 00 80 3C 02", 0xC80, hex!"05 F1 04 FD", "data/weather_sys.narc", 9 },
-  GameVer.PearlSpa      : { 0x10668C, hex!"FC B5 05 48 C0 46 41 21 09 22 02 4D A8 47 00 20 03 21 FC BD F1 64 00 02 00 80 3C 02", 0xC80, hex!"05 F1 04 FD", "data/weather_sys.narc", 9 },
-  GameVer.PlatinumSpa   : { 0x10101C, hex!"FC B5 05 48 C0 46 41 21 09 22 02 4D A8 47 00 20 03 21 FC BD B9 6A 00 02 00 80 3C 02", 0xCB4, hex!"00 F1 B2 F9", "data/weather_sys.narc", 9 },
-  GameVer.HeartGoldSpa  : { 0x110354, hex!"FC B5 05 48 C0 46 1C 21 00 22 02 4D A8 47 00 20 03 21 FC BD 09 75 00 02 00 80 3C 02", 0xCD0, hex!"0F F1 40 FB", "a/0/2/8",               0 },
-  GameVer.SoulSilverSpa : { 0x110354, hex!"FC B5 05 48 C0 46 1C 21 00 22 02 4D A8 47 00 20 03 21 FC BD 09 75 00 02 00 80 3C 02", 0xCD0, hex!"0F F1 40 FB", "a/0/2/8,",              0 },
+static immutable CustomOverlayGameData[GameVer.max+1] CO_GAME_INFO = [
+  GameVer.DiamondEng       : { 0x023C8000, 0x1064EC, hex!"FC B5 05 48 C0 46 41 21 09 22 02 4D A8 47 00 20 03 21 FC BD F1 64 00 02 00 80 3C 02", 0xC80, hex!"05 F1 34 FC", "data/weather_sys.narc", 9 },
+  GameVer.PearlEng         : { 0x023C8000, 0x1064EC, hex!"FC B5 05 48 C0 46 41 21 09 22 02 4D A8 47 00 20 03 21 FC BD F1 64 00 02 00 80 3C 02", 0xC80, hex!"05 F1 34 FC", "data/weather_sys.narc", 9 },
+  GameVer.PlatinumEng      : { 0x023C8000, 0x100E20, hex!"FC B5 05 48 C0 46 41 21 09 22 02 4D A8 47 00 20 03 21 FC BD A5 6A 00 02 00 80 3C 02", 0xCB4, hex!"00 F1 B4 F8", "data/weather_sys.narc", 9 },
+  GameVer.HeartGoldEng     : { 0x023C8000, 0x110334, hex!"FC B5 05 48 C0 46 1C 21 00 22 02 4D A8 47 00 20 03 21 FC BD 09 75 00 02 00 80 3C 02", 0xCD0, hex!"0F F1 30 FB", "a/0/2/8",               0 },
+  GameVer.SoulSilverEng    : { 0x023C8000, 0x110334, hex!"FC B5 05 48 C0 46 1C 21 00 22 02 4D A8 47 00 20 03 21 FC BD 09 75 00 02 00 80 3C 02", 0xCD0, hex!"0F F1 30 FB", "a/0/2/8",               0 },
+  GameVer.DiamondSpa       : { 0x023C8000, 0x10668C, hex!"FC B5 05 48 C0 46 41 21 09 22 02 4D A8 47 00 20 03 21 FC BD F1 64 00 02 00 80 3C 02", 0xC80, hex!"05 F1 04 FD", "data/weather_sys.narc", 9 },
+  GameVer.PearlSpa         : { 0x023C8000, 0x10668C, hex!"FC B5 05 48 C0 46 41 21 09 22 02 4D A8 47 00 20 03 21 FC BD F1 64 00 02 00 80 3C 02", 0xC80, hex!"05 F1 04 FD", "data/weather_sys.narc", 9 },
+  GameVer.PlatinumSpa      : { 0x023C8000, 0x10101C, hex!"FC B5 05 48 C0 46 41 21 09 22 02 4D A8 47 00 20 03 21 FC BD B9 6A 00 02 00 80 3C 02", 0xCB4, hex!"00 F1 B2 F9", "data/weather_sys.narc", 9 },
+  GameVer.HeartGoldSpa     : { 0x023C8000, 0x110354, hex!"FC B5 05 48 C0 46 1C 21 00 22 02 4D A8 47 00 20 03 21 FC BD 09 75 00 02 00 80 3C 02", 0xCD0, hex!"0F F1 40 FB", "a/0/2/8",               0 },
+  GameVer.SoulSilverSpa    : { 0x023C8000, 0x110354, hex!"FC B5 05 48 C0 46 1C 21 00 22 02 4D A8 47 00 20 03 21 FC BD 09 75 00 02 00 80 3C 02", 0xCD0, hex!"0F F1 40 FB", "a/0/2/8,",              0 },
+  GameVer.WildWorldUS      : { 0x022C0000, 0xFC0,    hex!("00 B5 FF B4 8F B0 68 46 09 A1 04 22 00 23 10 4F B8 47 68 46 0F 49 0A 9A 09 9B D2 1A 0E 4F B8 47 68 46 0E 4F B8 47 0F B0 FF BC 0D 48 01 43 00 BD 2F 73" ~
+                                                          "6B 79 2F 64 5F 32 64 5F 77 65 61 74 68 65 72 5F 74 65 73 74 5F 6E 63 6C 2E 62 69 6E 00 00 1D 43 06 02 00 00 2C 02 34 93 11 02 60 94 11 02 00 00 01 00"),
+                                                          0x6D548, makeBl(0xFC0-0x6D548).nativeToLittleEndian, "sky/d_2d_weather_test_ncl.bin", CustomOverlayGameData.USE_WHOLE_FILE },
 ];
 
 static immutable FOLLOWING_PLAT_CO_BRANCH = hex!"E9 F0 D0 FF";
@@ -142,8 +149,13 @@ int init(string romFile) {
 
     if (coBranchCode == CO_GAME_INFO[gameVer].branchCode || isFollowingPlatBranch) {
       //custom overlay already exists
-      auto coSubfile = unpackCustomOverlayNarc(gameVer, isFollowingPlatBranch, ROM_FILES_ORIGINAL_FOLDER);
-      copy(coSubfile, CUSTOM_OVERLAY_ORIG_PATH);
+      if (CO_GAME_INFO[gameVer].hostSubfile == CustomOverlayGameData.USE_WHOLE_FILE) {
+        copy(buildPath(ROM_FILES_ORIGINAL_FOLDER, "data", CO_GAME_INFO[gameVer].hostFile), CUSTOM_OVERLAY_ORIG_PATH);
+      }
+      else {
+        auto coSubfile = unpackCustomOverlayNarc(gameVer, isFollowingPlatBranch, ROM_FILES_ORIGINAL_FOLDER);
+        copy(coSubfile, CUSTOM_OVERLAY_ORIG_PATH);
+      }
     }
     else {
       //make new custom overlay
@@ -200,16 +212,17 @@ int build(string newRomFile) {
     restoreFile(x);
   }
 
-  if (!projInfo.customOverlay.alreadyInstalled) {
-    installCustomOverlay(projInfo);
-  }
+  installCustomOverlay(projInfo);
 
   auto mods = findMods();
   foreach (ref mod; mods) {
     patchAllCode(mod, projInfo);
   }
 
-  {
+  if (CO_GAME_INFO[projInfo.gameVer].hostSubfile == CustomOverlayGameData.USE_WHOLE_FILE) {
+    copy(CUSTOM_OVERLAY_PATH, buildPath(ROM_FILES_FOLDER, "data", CO_GAME_INFO[projInfo.gameVer].hostFile));
+  }
+  else {
     auto coStart = projInfo.customOverlay.startOffset;
     projInfo.customOverlay.header.nextFreeSpace = projInfo.customOverlay.currentOffset - coStart;
     projInfo.customOverlay.data[coStart..coStart+COHeader.sizeof] = toRawBytes!COHeader(projInfo.customOverlay.header);
@@ -360,7 +373,7 @@ void patchAllCode(ref Mod mod, ref ProjectInfo projInfo) {
   auto preprocessCodePath = buildPath(PREPROCESS_SOURCE_PATH, mod.name);
   mkdirRecurse(preprocessCodePath);
 
-  Symbol[] symbols = [Symbol("Mod_Free_RAM", CUSTOM_OVERLAY_ADDRESS + projInfo.customOverlay.currentOffset)];
+  Symbol[] symbols = [Symbol("Mod_Free_RAM", CO_GAME_INFO[projInfo.gameVer].loadAddress + projInfo.customOverlay.currentOffset)];
 
   projInfo.customOverlay.currentOffset += mod.freeRAM;
 
@@ -450,7 +463,7 @@ uint getAddr(ref ProjectInfo projInfo, string destination, uint offset) {
   import std.algorithm;
 
   if (destination == "custom") {
-    return CUSTOM_OVERLAY_ADDRESS + offset;
+    return CO_GAME_INFO[projInfo.gameVer].loadAddress + offset;
   }
   else if (destination == "arm9") {
     return 0x02000000 + offset;
@@ -504,7 +517,7 @@ string preprocessSource(string destFolder, string sourceFile, const(Symbol)[] sy
 }
 
 uint customOverlayAdd(ref ProjectInfo projInfo, const(ubyte)[] data) {
-  uint result = projInfo.customOverlay.currentOffset + CUSTOM_OVERLAY_ADDRESS;
+  uint result = projInfo.customOverlay.currentOffset + CO_GAME_INFO[projInfo.gameVer].loadAddress;
 
   auto start = projInfo.customOverlay.currentOffset;
   projInfo.customOverlay.data[start..start+data.length] = data;
@@ -608,7 +621,8 @@ GameVer extractGameVer(string baseFolder = ROM_FILES_FOLDER) {
     case "CPUS": return GameVer.PlatinumSpa;
     case "IPKS": return GameVer.HeartGoldSpa;
     case "IPGS": return GameVer.SoulSilverSpa;
-    default: throw new Exception("Game version unsupported!");
+    case "ADME": return GameVer.WildWorldUS;
+    default: throw new Exception("Game version unsupported: " ~ gameCode.idup);
   }
 }
 
@@ -627,7 +641,7 @@ string unpackCustomOverlayNarc(GameVer gameVer, bool isFollowingPlat, string bas
 
   auto coGameData = &CO_GAME_INFO[gameVer];
 
-  auto narcPath    = buildPath(baseFolder, "data", coGameData.narcFile);
+  auto narcPath    = buildPath(baseFolder, "data", coGameData.hostFile);
   auto extractPath = buildPath(TEMP_FOLDER, "weather_sys");
 
   mkdir(extractPath);
@@ -636,7 +650,7 @@ string unpackCustomOverlayNarc(GameVer gameVer, bool isFollowingPlat, string bas
     knarcPath, "-d", extractPath, "-u", narcPath,
   ]);
 
-  auto subfileNum = isFollowingPlat ? FOLLOWING_PLAT_CO_SUBFILE : coGameData.narcSubfile;
+  auto subfileNum = isFollowingPlat ? FOLLOWING_PLAT_CO_SUBFILE : coGameData.hostSubfile;
 
   //knarc will unfortunatey not spit out predictable filenames. have to search the directory ourselves
   auto re = regex(`weather_sys_[0]*` ~ subfileNum.to!string);
@@ -650,7 +664,7 @@ void packCustomOverlayNarc(GameVer gameVer, bool isFollowingPlat, string baseFol
 
   auto coGameData = &CO_GAME_INFO[gameVer];
 
-  auto narcPath    = buildPath(baseFolder, "data", coGameData.narcFile);
+  auto narcPath    = buildPath(baseFolder, "data", coGameData.hostFile);
   auto extractPath = buildPath(TEMP_FOLDER, "weather_sys");
 
   auto knarcResult = execute( [
