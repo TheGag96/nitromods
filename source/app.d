@@ -62,7 +62,7 @@ static immutable CustomOverlayGameData[GameVer.max+1] CO_GAME_INFO = [
   GameVer.SoulSilverSpa    : { 0x023C8000, 0x110354, hex!"FC B5 05 48 C0 46 1C 21 00 22 02 4D A8 47 00 20 03 21 FC BD 09 75 00 02 00 80 3C 02", 0xCD0, hex!"0F F1 40 FB", "a/0/2/8,",              0 },
   GameVer.WildWorldUS      : { 0x022C0000, 0xFC0,    hex!("00 B5 FF B4 8F B0 68 46 09 A1 04 22 00 23 10 4F B8 47 68 46 0F 49 0A 9A 09 9B D2 1A 0E 4F B8 47 68 46 0E 4F B8 47 0F B0 FF BC 0D 48 01 43 00 BD 2F 73" ~
                                                           "6B 79 2F 64 5F 32 64 5F 77 65 61 74 68 65 72 5F 74 65 73 74 5F 6E 63 6C 2E 62 69 6E 00 00 1D 43 06 02 00 00 2C 02 34 93 11 02 60 94 11 02 00 00 01 00"),
-                                                          0x6D548, makeBl(0xFC0-0x6D548).nativeToLittleEndian, "sky/d_2d_weather_test_ncl.bin", CustomOverlayGameData.USE_WHOLE_FILE },
+                                                          0x6D554, makeBl(0xFC0-0x6D554).nativeToLittleEndian, "sky/d_2d_weather_test_ncl.bin", CustomOverlayGameData.USE_WHOLE_FILE },
 ];
 
 static immutable FOLLOWING_PLAT_CO_BRANCH = hex!"E9 F0 D0 FF";
