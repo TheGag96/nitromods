@@ -429,7 +429,7 @@ string compile(ref Mod mod, string filename, string outDir) {
 
     case ".c":
       program = buildPath(gDevkitarmPath, "bin/arm-none-eabi-gcc");
-      options = ["-Wall", "-Os", "-march=armv5te", "-mtune=arm946e-s", "-fomit-frame-pointer", "-ffast-math", 
+      options = ["-Wall", "-Os", "-std=c11", "-march=armv5te", "-mtune=arm946e-s", "-fomit-frame-pointer", "-ffast-math",
                  "-mthumb", "-mthumb-interwork", "-I/opt/devkitpro/libnds/include", "-DARM9"];
       break;
 
