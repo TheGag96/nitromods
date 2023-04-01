@@ -450,6 +450,8 @@ string compile(ref Mod mod, string filename, string outDir) {
     throw new Exception("Compilation failed: " ~ cmdResult.output);
   }
 
+  writeln(cmdResult.output);
+
   return outPath;
 }
 
