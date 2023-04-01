@@ -386,12 +386,13 @@ void patchAllCode(ref Mod mod, ref ProjectInfo projInfo) {
 
   foreach (ref codePatch; mod.code) {
     string sourceFile = buildPath(mod.modPath, "code", codePatch.file);
+    string includesFile;
 
     if ([".s", ".asm", ".c"].canFind(codePatch.file.extension)) {
-      sourceFile = preprocessSource(preprocessCodePath, sourceFile, symbols);
+      includesFile = makeIncludesFile(preprocessCodePath, sourceFile, symbols);
     }
 
-    string compiledPath = compile(mod, sourceFile, preprocessCodePath);
+    string compiledPath = compile(mod, sourceFile, includesFile, preprocessCodePath);
 
     uint codeAddr;
 
@@ -417,7 +418,7 @@ void patchAllCode(ref Mod mod, ref ProjectInfo projInfo) {
   }
 }
 
-string compile(ref Mod mod, string filename, string outDir) {
+string compile(ref Mod mod, string filename, string includesFilename, string outDir) {
   string program;
   string[] options;
 
@@ -430,13 +431,13 @@ string compile(ref Mod mod, string filename, string outDir) {
     case ".c":
       program = buildPath(gDevkitarmPath, "bin/arm-none-eabi-gcc");
       options = ["-Wall", "-Os", "-std=c11", "-march=armv5te", "-mtune=arm946e-s", "-fomit-frame-pointer", "-ffast-math",
-                 "-mthumb", "-mthumb-interwork", "-I/opt/devkitpro/libnds/include", "-DARM9"];
+                 "-mthumb", "-mthumb-interwork", "-I/opt/devkitpro/libnds/include", "-include", includesFilename, "-DARM9"];
       break;
 
     case ".s":
     case ".asm":
       program = buildPath(gDevkitarmPath, "bin/arm-none-eabi-as");
-      options = ["-march=armv5te", "-mthumb", "-mthumb-interwork"];
+      options = ["-march=armv5te", "-mthumb", "-mthumb-interwork", "-I", includesFilename.dirName];
       break;
   }
 
@@ -506,10 +507,10 @@ ubyte[] extractMachineCode(string path) {
   return cast(ubyte[]) read(tempOutputPath);
 }
 
-string preprocessSource(string destFolder, string sourceFile, const(Symbol)[] symbols) {
+string makeIncludesFile(string destFolder, string sourceFile, const(Symbol)[] symbols) {
   auto app = appender!string;
 
-  string result = buildPath(destFolder, sourceFile.baseName);
+  string result = buildPath(destFolder, "includes_for_" ~ sourceFile.baseName);
 
   bool isCSource = sourceFile.extension == ".c";
 
@@ -521,8 +522,6 @@ string preprocessSource(string destFolder, string sourceFile, const(Symbol)[] sy
       app.formattedWrite(".set %s, 0x%X\n", symbol.name, symbol.value);
     }
   }
-
-  app.put(readText(sourceFile));
 
   std.file.write(result, app.data);
 
