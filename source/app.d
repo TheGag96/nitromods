@@ -223,21 +223,24 @@ int build(string newRomFile) {
     patchAllCode(mod, projInfo);
   }
 
-  if (CO_GAME_INFO[projInfo.gameVer].hostSubfile == CustomOverlayGameData.USE_WHOLE_FILE) {
-    copy(CUSTOM_OVERLAY_PATH, buildPath(ROM_FILES_FOLDER, "data", CO_GAME_INFO[projInfo.gameVer].hostFile));
-  }
-  else {
+  {
     auto coStart = projInfo.customOverlay.startOffset;
     projInfo.customOverlay.header.nextFreeSpace = projInfo.customOverlay.currentOffset - coStart;
     projInfo.customOverlay.data[coStart..coStart+COHeader.sizeof] = toRawBytes!COHeader(projInfo.customOverlay.header);
 
     std.file.write(CUSTOM_OVERLAY_PATH, projInfo.customOverlay.data);
 
-    auto coSubfile = unpackCustomOverlayNarc(projInfo.gameVer, projInfo.isFollowingPlatinum);
+    if (CO_GAME_INFO[projInfo.gameVer].hostSubfile == CustomOverlayGameData.USE_WHOLE_FILE) {
+      std.file.write(CUSTOM_OVERLAY_PATH, projInfo.customOverlay.data);
+      copy(CUSTOM_OVERLAY_PATH, buildPath(ROM_FILES_FOLDER, "data", CO_GAME_INFO[projInfo.gameVer].hostFile));
+    }
+    else {
+      auto coSubfile = unpackCustomOverlayNarc(projInfo.gameVer, projInfo.isFollowingPlatinum);
 
-    copy(CUSTOM_OVERLAY_PATH, coSubfile);
+      copy(CUSTOM_OVERLAY_PATH, coSubfile);
 
-    packCustomOverlayNarc(projInfo.gameVer, projInfo.isFollowingPlatinum);
+      packCustomOverlayNarc(projInfo.gameVer, projInfo.isFollowingPlatinum);
+    }
   }
 
   auto cmdResult = execute([
