@@ -446,6 +446,10 @@ string compile(ref Mod mod, string filename, string outDir) {
     [program] ~ options ~ ["-c", filename, "-o", outPath]
   );
 
+  if (cmdResult.status != 0) {
+    throw new Exception("Compilation failed: " ~ cmdResult.output);
+  }
+
   return outPath;
 }
 
