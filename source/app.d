@@ -388,7 +388,7 @@ void patchAllCode(ref Mod mod, ref ProjectInfo projInfo) {
     string sourceFile = buildPath(mod.modPath, "code", codePatch.file);
     string includesFile;
 
-    if ([".s", ".asm", ".c"].canFind(codePatch.file.extension)) {
+    if ([".s", ".asm", ".c", ".d"].canFind(codePatch.file.extension)) {
       includesFile = makeIncludesFile(preprocessCodePath, sourceFile, symbols);
     }
 
@@ -422,6 +422,8 @@ string compile(ref Mod mod, string filename, string includesFilename, string out
   string program;
   string[] options;
 
+  string outputFlag = "-o";
+
   switch (filename.extension) {
     case ".bin":
     default:
@@ -434,6 +436,14 @@ string compile(ref Mod mod, string filename, string includesFilename, string out
                  "-mthumb", "-mthumb-interwork", "-fshort-enums", "-I/opt/devkitpro/libnds/include", "-include", includesFilename, "-DARM9"];
       break;
 
+    case ".d":
+      program = "ldc2";
+      options = ["-betterC", "--defaultlib=no", "-Os", "-ffast-math", "-mtriple=armv5te-none-eabi",
+                 "-mcpu=arm946e-s", "-float-abi=soft", "-mattr=+thumb-mode", "--frame-pointer=none", "-link-internally",
+                 "-I", filename.dirName, "-i", includesFilename];
+      outputFlag = "-of";
+      break;
+
     case ".s":
     case ".asm":
       program = buildPath(gDevkitarmPath, "bin/arm-none-eabi-as");
@@ -444,7 +454,7 @@ string compile(ref Mod mod, string filename, string includesFilename, string out
   string outPath = buildPath(outDir, filename.baseName.setExtension(".o"));
 
   auto cmdResult = execute(
-    [program] ~ options ~ ["-c", filename, "-o", outPath]
+    [program] ~ options ~ ["-c", filename, outputFlag, outPath]
   );
 
   if (cmdResult.status != 0) {
@@ -512,14 +522,19 @@ string makeIncludesFile(string destFolder, string sourceFile, const(Symbol)[] sy
 
   string result = buildPath(destFolder, "includes_for_" ~ sourceFile.baseName);
 
-  bool isCSource = sourceFile.extension == ".c";
-
   foreach (symbol; symbols) {
-    if (isCSource) {
-      app.formattedWrite("#define %s 0x%X\n", symbol.name, symbol.value);
-    }
-    else {
-      app.formattedWrite(".set %s, 0x%X\n", symbol.name, symbol.value);
+    switch (sourceFile.extension) {
+      case ".c":
+        app.formattedWrite("#define %s 0x%X\n", symbol.name, symbol.value);
+        break;
+      case ".d":
+        app.formattedWrite("enum %s = 0x%X;\n", symbol.name, symbol.value);
+        break;
+      case ".s":
+        app.formattedWrite(".set %s, 0x%X\n", symbol.name, symbol.value);
+        break;
+      default:
+        break;
     }
   }
 
