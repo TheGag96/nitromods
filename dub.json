@@ -7,7 +7,7 @@
 		"argsd": "~>1.1.0",
 		"dyaml": "~>0.9.2"
 	},
-	"description": "A mod manager for DS Pokemon games",
+	"description": "A mod manager for DS games",
 	"license": "free beer",
-	"name": "pokemods"
+	"name": "nitromods"
 }

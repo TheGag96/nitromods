@@ -1,14 +1,14 @@
-module pokemods.app;
+module nitromods.app;
 
 import std.stdio, std.algorithm, std.process, std.file, std.path, std.conv, std.array, std.bitmanip, std.format, std.regex, std.functional;
-import pokemods.util;
+import nitromods.util;
 
 enum MODS_FOLDER               = "mods";
 enum MOD_INFO_FILE             = "mod.yaml";
 enum PROJECT_INFO_FILE         = "project.yaml";
 enum ROM_FILES_FOLDER          = "romfiles";
 enum ROM_FILES_ORIGINAL_FOLDER = "romfiles_original";
-enum TEMP_FOLDER               = "tmp_pokemods";
+enum TEMP_FOLDER               = "tmp_nitromods";
 enum CUSTOM_OVERLAY_FILE       = "overlay_custom.bin";
 enum CUSTOM_OVERLAY_PATH       = buildPath(ROM_FILES_FOLDER,          "overlay", "overlay_custom.bin");
 enum CUSTOM_OVERLAY_ORIG_PATH  = buildPath(ROM_FILES_ORIGINAL_FOLDER, "overlay", "overlay_custom.bin");

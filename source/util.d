@@ -1,4 +1,4 @@
-module pokemods.util;
+module nitromods.util;
 
 import std.stdio : File;
 
