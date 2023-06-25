@@ -105,7 +105,14 @@ enum FOLLOWING_PLAT_CO_SUBFILE          = 65;
 
 int main(string[] args) {
   if (args.length < 2) {
-    writeln("Error: idiot");
+    stderr.writeln("Ways to invoke this program: ");
+    stderr.writeln("  nitromods init base_rom.nds");
+    stderr.writeln("  This takes a base ROM, extracts the whole filesystem, and sets up a basic project folder structure.");
+    stderr.writeln();
+    stderr.writeln("  nitromods build [output_rom.nds]");
+    stderr.writeln("  This builds an output ROM from the project in the current directory, applying all mods and");
+    stderr.writeln("  inserting the hijacks that make custom overlays work.");
+    stderr.writeln("  If no ROM file is specified, the output is called `build.nds`.");
     return 1;
   }
 
@@ -113,7 +120,7 @@ int main(string[] args) {
   gDevkitarmPath = environment.get("DEVKITARM");
 
   if (!gDevkitproPath || !gDevkitarmPath) {
-    writeln("Error: DEVKITPRO and DEVKITARM must be in your PATH.\n",
+    stderr.writeln("Error: DEVKITPRO and DEVKITARM must be in your PATH.\n",
                    "Ensure DevkitARM is installed and try again.");
     return 1;
   }
@@ -121,7 +128,7 @@ int main(string[] args) {
   switch (args[1]) {
     case "init":  
       if (args.length < 3) {
-        writeln("Error: Need ROM filename.");
+        stderr.writeln("Error: The init commands needs a ROM filename to start the project with.");
         return 1;
       }
       return init(args[2]);
@@ -131,20 +138,20 @@ int main(string[] args) {
       return build(newRomFile);
 
     default: 
-      writeln("Error: Unrecognized command.");
+      stderr.writeln("Error: Unrecognized command.");
       return 1;
   }
 }
 
 int init(string romFile) {
   if (exists(PROJECT_INFO_FILE)) {
-    writeln("Error: Project already exists here.");
+    stderr.writeln("Error: A project already exists in this folder.");
     return 1;
   }
 
   foreach (folder; [ROM_FILES_FOLDER, ROM_FILES_ORIGINAL_FOLDER]) {
     if (exists(folder)) {
-      writeln("Error: `", folder, "` already exists. Please move/remove it and try again.");
+      stderr.writeln("Error: `", folder, "` already exists. Please move/remove it and try again.");
       return 1;
     }   
   }
@@ -152,7 +159,7 @@ int init(string romFile) {
   mkdirRecurse(ROM_FILES_ORIGINAL_FOLDER);
 
   if (exists(TEMP_FOLDER)) {
-    writeln("Error: `", TEMP_FOLDER, "` exists. Please move/delete it manually.");
+    stderr.writeln("Error: The temporary working folder `", TEMP_FOLDER, "` exists. Please move/delete it manually.");
     return 1;
   }
 
@@ -218,12 +225,12 @@ int build(string newRomFile) {
   import std.file, std.algorithm;
 
   if (!(exists(MODS_FOLDER) && isDir(MODS_FOLDER))) {
-    writeln("Error: Mods folder not found!");
+    stderr.writeln("Error: There should be a folder called `", MODS_FOLDER, "` that holds the project's mods, but it's not there!");
     return 1;
   }
 
   if (exists(TEMP_FOLDER)) {
-    writeln("Error: `", TEMP_FOLDER, "` exists. Please move/delete it manually.");
+    stderr.writeln("Error: The temporary working folder `", TEMP_FOLDER, "` exists. Please move/delete it manually.");
     return 1;
   }
 
@@ -429,19 +436,19 @@ void patchAllCode(ref Mod mod, ref ProjectInfo projInfo) {
     if (codePatch.destination == "custom" && codePatch.addNewCode) {
       //handle new code
       codeAddr = customOverlayAdd(projInfo, extractMachineCode(compiledPath));
-      debug writefln("Patched new code %s at %X", codePatch.file.baseName, codeAddr);
+      writefln("Patched new code %s at %X", codePatch.file.baseName, codeAddr);
     }
     else {
       codeAddr = getAddr(projInfo, codePatch.destination, codePatch.offset);
       patch(getDestinationFile(codePatch.destination), extractMachineCode(compiledPath), codePatch.offset);
-      debug writefln("Patched existing code with %s at %X", codePatch.file.baseName, codeAddr);
+      writefln("Patched existing code with %s at %X", codePatch.file.baseName, codeAddr);
     }
 
     foreach (ref hijack; codePatch.hijacks) {
       uint blInstruction = makeBl(codeAddr - getAddr(projInfo, hijack.destination, hijack.offset));
 
       patch(getDestinationFile(hijack.destination), nativeToLittleEndian(blInstruction)[], hijack.offset);
-      debug writefln("  Writing hijack to %s: %X to %X", hijack.destination, getAddr(projInfo, hijack.destination, hijack.offset), codeAddr);
+      writefln("  Writing hijack to %s: %X to %X", hijack.destination, getAddr(projInfo, hijack.destination, hijack.offset), codeAddr);
     }
 
     symbols ~= Symbol(codePatch.name, codeAddr);
