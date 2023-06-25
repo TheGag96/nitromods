@@ -1,0 +1,15 @@
+.dub
+docs.json
+__dummy.html
+docs/
+/nitromods
+nitromods.so
+nitromods.dylib
+nitromods.dll
+nitromods.a
+nitromods.lib
+nitromods-test-*
+*.exe
+*.o
+*.obj
+*.lst
