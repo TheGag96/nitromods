@@ -476,7 +476,7 @@ string compile(ref Mod mod, string filename, string includesFilename, string out
     case ".d":
       program = "ldc2";
       options = ["-betterC", "--defaultlib=no", "-Os", "-ffast-math", "-mtriple=armv5te-none-eabi",
-                 "-mcpu=arm946e-s", "-float-abi=soft", "-mattr=+thumb-mode", "--frame-pointer=none", "-link-internally", "--disable-loop-unrolling",
+                 "-mcpu=arm946e-s", "-float-abi=soft", "-mattr=+thumb-mode", "--frame-pointer=none", "--link-internally", "--disable-loop-unrolling",
                  "-I", filename.dirName, "-i", includesFilename];
       outputFlag = "-of";
       break;
