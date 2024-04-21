@@ -541,17 +541,26 @@ uint getAddr(ref ProjectInfo projInfo, string destination, uint offset) {
 }
 
 ubyte[] extractMachineCode(string path) {
-  import std.range : chunks;
+  import elf;
 
-  //binary files will be used as-is
-  if (path.extension == ".bin") return cast(ubyte[]) read(path);
+  auto codeElf = ELF.fromFile(path);
 
-  string objcopyPath    = buildPath(gDevkitarmPath, "bin/arm-none-eabi-objcopy");
-  string tempOutputPath = path.setExtension(".bin");
+  // Concatenate all sections starting with .text, as there may be a .text section for each function.
+  // @HACK: This isn't really valid, but it should suffice for the time being. We really need to actually
+  // implement a full linker to make this work.
+  ubyte[] result;
 
-  auto cmdResult = execute([objcopyPath, "-O", "binary", "-j", ".text", path, tempOutputPath]);
+  foreach (section; codeElf.sections) {
+    if (section.name.startsWith(".text")) {
+      result ~= section.contents;
+    }
+  }
 
-  return cast(ubyte[]) read(tempOutputPath);
+  // @HACK: If we don't destroy this MmFile, the file lock will still stick around, which will cause issues if we try
+  //        to open it again (which is possible if a mod uses the same source file to patch multiple places).
+  destroy(codeElf.m_file);
+
+  return result;
 }
 
 string makeIncludesFile(string destFolder, string sourceFile, const(Symbol)[] symbols) {
