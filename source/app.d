@@ -1,6 +1,6 @@
 module nitromods.app;
 
-import std.stdio, std.algorithm, std.process, std.file, std.path, std.conv, std.array, std.bitmanip, std.format, std.regex, std.functional;
+import std.stdio, std.algorithm, std.process, std.file, std.path, std.conv, std.array, std.bitmanip, std.format, std.regex, std.functional, std.string;
 import nitromods.util;
 
 enum MODS_FOLDER               = "mods";
@@ -12,6 +12,7 @@ enum TEMP_FOLDER               = "tmp_nitromods";
 enum CUSTOM_OVERLAY_FILE       = "overlay_custom.bin";
 enum CUSTOM_OVERLAY_PATH       = buildPath(ROM_FILES_FOLDER,          "overlay", "overlay_custom.bin");
 enum CUSTOM_OVERLAY_ORIG_PATH  = buildPath(ROM_FILES_ORIGINAL_FOLDER, "overlay", "overlay_custom.bin");
+enum CUSTOM_OVERLAY_TAG        = "NITROMOD";
 enum PREPROCESS_SOURCE_PATH    = buildPath(TEMP_FOLDER, "preprocessed");
 
 enum CUSTOM_OVERLAY_FILE_SIZE   = 1024*96;
@@ -238,21 +239,20 @@ int build(string newRomFile) {
   mkdirRecurse(PREPROCESS_SOURCE_PATH);
   //scope (exit) rmdirRecurse(TEMP_FOLDER);
 
-  ProjectInfo projInfo = getProjectInfo();
-
   //restore original overlay
   void restoreFile(string path) {
     copy(buildPath(ROM_FILES_ORIGINAL_FOLDER, path), buildPath(ROM_FILES_FOLDER, path));
-  }
-
-  foreach (i; 0..projInfo.overlayOffsets.length) {
-    restoreFile(format("overlay/overlay_%04d.bin", i));
   }
 
   foreach (x; ["arm9.bin", "arm7.bin", "overlay/overlay_custom.bin"]) {
     restoreFile(x);
   }
 
+  ProjectInfo projInfo = getProjectInfo();
+
+  foreach (i; 0..projInfo.overlayOffsets.length) {
+    restoreFile(format("overlay/overlay_%04d.bin", i));
+  }
   installCustomOverlay(projInfo);
 
   auto mods = findMods();
@@ -318,7 +318,9 @@ struct Mod {
   CodePatch[] code;
 }
 
+// Members of this struct shouldn't be removed or reordered for compatibility reasons!
 struct COHeader {
+  char[CUSTOM_OVERLAY_TAG.length] tag = CUSTOM_OVERLAY_TAG;
   uint nextFreeSpace;
 }
 static assert(COHeader.sizeof <= CUSTOM_OVERLAY_HEADER_SIZE);
@@ -646,23 +648,49 @@ ProjectInfo getProjectInfo() {
   }
 
   result.customOverlay.alreadyInstalled = result.isFollowingPlatinum || coBranchCode == coGameInfo(result.gameVer).branchCode;
-  result.customOverlay.data = cast(ubyte[]) read(CUSTOM_OVERLAY_PATH);
 
-  if (result.customOverlay.data.length < CUSTOM_OVERLAY_FILE_SIZE) {
-    result.customOverlay.data.length = CUSTOM_OVERLAY_FILE_SIZE;
+  ubyte[] coData = cast(ubyte[]) read(CUSTOM_OVERLAY_PATH);
+  result.customOverlay.data = coData;
+
+  if (coData.length < CUSTOM_OVERLAY_FILE_SIZE) {
+    coData.length = CUSTOM_OVERLAY_FILE_SIZE;
   }
 
-  if (result.isFollowingPlatinum) {
-    result.customOverlay.startOffset = FOLLOWING_PLAT_CO_FREE_SPACE_START;
+  size_t searchStart = result.isFollowingPlatinum ? FOLLOWING_PLAT_CO_FREE_SPACE_START : 0;
+  auto nitromodsPortion = find(coData[searchStart..$], CUSTOM_OVERLAY_TAG.representation);
+
+  uint coStart = 0;
+  if (nitromodsPortion.length) {
+    // Tag found, so nitromods has already been installed here
+    coStart = cast(uint) (coData.length - nitromodsPortion.length);
+
+    writefln("Found existing nitromods tag in custom overlay at %08X", coStart);
+
+    assert((coStart & (COHeader.alignof - 1)) == 0);
+    result.customOverlay.header = fromRawBytes!COHeader(coData[coStart..$][0..COHeader.sizeof]);
+    result.customOverlay.currentOffset = result.customOverlay.header.nextFreeSpace;
+    assert(result.customOverlay.currentOffset >= coStart + CUSTOM_OVERLAY_HEADER_SIZE);
   }
   else {
-    result.customOverlay.startOffset = 0;
+    // Search for free space
+    coStart = 0;
+
+    foreach_reverse (i; searchStart .. coData.length - CUSTOM_OVERLAY_HEADER_SIZE) {
+      if (coData[i] != 0) {
+        // Align to COHeader's alignof from the last zero byte. That should be enough, right?
+        coStart = cast(uint) ((i+1+COHeader.alignof-1) & (~(COHeader.alignof-1)));
+        break;
+      }
+    }
+
+    writefln("Inserting new nitrmods tag into custom overlay at %08X", coStart);
+
+    result.customOverlay.startOffset   = coStart;
+    assert(coData.length - coStart >= CUSTOM_OVERLAY_HEADER_SIZE);
+    result.customOverlay.currentOffset = coStart + CUSTOM_OVERLAY_HEADER_SIZE;
+
+    // result.customOverlay.header initted already to default
   }
-
-  result.customOverlay.currentOffset = result.customOverlay.startOffset + CUSTOM_OVERLAY_HEADER_SIZE;
-
-  auto coStart = result.customOverlay.startOffset;
-  result.customOverlay.header = fromRawBytes!COHeader(result.customOverlay.data[coStart..$][0..COHeader.sizeof]);
 
   return result;
 }
