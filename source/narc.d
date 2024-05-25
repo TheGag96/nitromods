@@ -449,3 +449,82 @@ NarcFile* getFileByName(Narc* narc, const(char)[] name) {
   }
   return cast(NarcFile*) &gNullFile;
 }
+
+ubyte[] packNarc(Arena* arena, Narc* narc) {
+  ubyte* narcStart = arena.index;
+
+  auto header         = push!NarcHeader(arena);
+
+  ubyte* fatStart        = arena.index;
+  auto fatChunkHeader    = push!ChunkHeader(arena);
+  auto fatChunkExtra     = push!BtafChunkExtra(arena);
+  fatChunkHeader.name    = CHUNK_TAGS[Chunk.fat];
+  fatChunkExtra.numFiles = cast(ushort) narc.files.length;
+
+  auto fatEntries = pushArray!FatEntry(arena, narc.files.length);
+
+  fatChunkHeader.size = cast(uint) (arena.index - fatStart);
+
+  ubyte* fntStart     = arena.index;
+  auto fntChunkHeader = push!ChunkHeader(arena);
+  ubyte* fntBase      = arena.index;
+  fntChunkHeader.name = CHUNK_TAGS[Chunk.fnt];
+
+  auto mainEntries = pushArray!FntMainTableEntry(arena, narc.directories.length);
+
+  foreach (dirId, ref file; narc.directories) {
+    bool wroteFirstFile = false;
+
+    mainEntries[dirId].subTableOffset = cast(uint) (arena.index - fntBase);
+
+    if (dirId == 0) {
+      mainEntries[dirId].numDirsOrParent = cast(ushort) mainEntries.length;
+    }
+    else {
+      mainEntries[dirId].numDirsOrParent = file.parent.id;
+    }
+
+    foreach (subFile; linkedRange(file.first)) {
+      auto typeOrLength = push!ubyte(arena);
+      *typeOrLength = cast(ubyte) subFile.name.length;
+      if (isDirectory(*subFile)) {
+        *typeOrLength |= 0b10000000;
+      }
+
+      copyArray(arena, subFile.name);
+      if (!isDirectory(*subFile) && !wroteFirstFile) {
+        wroteFirstFile = true;
+        mainEntries[dirId].subTableFirstFile = subFile.id;
+      }
+
+      if (isDirectory(*subFile)) {
+        *push!ushort(arena) = subFile.id;
+      }
+    }
+
+    pushBytes(arena, 1);  // 0 byte to end table
+  }
+
+  // GBATEK says we need to pad 0xFFs to the nearest 4 bytes at the end of this chunk.
+  auto padding = pushBytesNoZero(arena, -(arena.index - narcStart) & (4-1));
+  padding[] = 0xFF;
+
+  fntChunkHeader.size = cast(uint) (arena.index - fntStart);
+
+  ubyte* imgStart     = arena.index;
+  auto imgChunkHeader = push!ChunkHeader(arena);
+  ubyte* imgBase      = arena.index;
+  imgChunkHeader.name = CHUNK_TAGS[Chunk.img];
+
+  foreach (i, ref file; narc.files) {
+    fatEntries[i].start = cast(uint) (arena.index - imgBase);
+    fatEntries[i].end   = cast(uint) (fatEntries[i].start + file.data.length);
+    copyArray(arena, file.data);
+  }
+
+  imgChunkHeader.size = cast(uint) (arena.index - imgStart);
+
+  header.fileSize = cast(uint) (arena.index-narcStart);
+
+  return narcStart[0..header.fileSize];
+}
