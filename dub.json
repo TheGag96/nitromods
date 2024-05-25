@@ -10,5 +10,6 @@
 	},
 	"description": "A mod manager for DS games",
 	"license": "free beer",
-	"name": "nitromods"
+	"name": "nitromods",
+	"dflags": ["-preview=in"]
 }
