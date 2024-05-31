@@ -7,8 +7,6 @@ This is a project management tool for modding DS games. It's capable of unpackin
 
 Firstly, you'll need to install [devkitARM](https://devkitpro.org/wiki/Getting_Started) so that you can assemble assembly and compile C code in mods from source. To be able to support mods written in the [D language](https://dlang.org), you'll need a copy of the [LLVM D Compiler (LDC)](https://github.com/ldc-developers/ldc#installation).
 
-At the moment, there is an external dependency on the program [knarc](https://github.com/kr3nshaw/knarc) so that we can unpack and repack NARC files. Hopefully, this will be replaced with our own NARC library, but for now, **place the knarc executable in the same directory as the nitromods executable.**
-
 Then, you can initalize your project like:
 
 ```sh
@@ -83,7 +81,6 @@ dub build --build=release
 
 * Make error handling better
 * Add support for file replacement in mods
-* Replace knarc with own NARC library
 * Automatically decompress base ROM ARM9.bin and overlays
 * Add game support through configuration files
 * Implement basic linker and add system that lets people make bindings to known functions from the ROM

@@ -1,7 +1,7 @@
 module nitromods.app;
 
 import std.stdio, std.algorithm, std.process, std.file, std.path, std.conv, std.array, std.bitmanip, std.format, std.regex, std.functional, std.string;
-import nitromods.util;
+import nitromods.util, nitromods.narc, nitromods.arena;
 
 enum MODS_FOLDER               = "mods";
 enum MOD_INFO_FILE             = "mod.yaml";
@@ -20,6 +20,8 @@ enum CUSTOM_OVERLAY_HEADER_SIZE = 0x20;
 
 string gDevkitproPath, gDevkitarmPath;
 
+Arena tTempStorage;
+
 struct CustomOverlayGameData {
   uint loadAddress;
 
@@ -30,7 +32,7 @@ struct CustomOverlayGameData {
   ubyte[] branchCode;
 
   string hostFile;
-  int hostSubfile;
+  short hostSubfile;
   enum USE_WHOLE_FILE = -1;
 }
 
@@ -105,6 +107,8 @@ enum FOLLOWING_PLAT_CO_FREE_SPACE_START = 0x13CD0; //subject to change if the mo
 enum FOLLOWING_PLAT_CO_SUBFILE          = 65;
 
 int main(string[] args) {
+  tTempStorage = arenaMake(16 * 1024 * 1024);
+
   if (args.length < 2) {
     stderr.writeln("Ways to invoke this program: ");
     stderr.writeln("  nitromods init base_rom.nds");
@@ -196,7 +200,7 @@ int init(string romFile) {
       }
       else {
         auto coSubfile = unpackCustomOverlayNarc(gameVer, isFollowingPlatBranch, ROM_FILES_ORIGINAL_FOLDER);
-        copy(coSubfile, CUSTOM_OVERLAY_ORIG_PATH);
+        std.file.write(CUSTOM_OVERLAY_ORIG_PATH, coSubfile);
       }
     }
     else {
@@ -268,15 +272,10 @@ int build(string newRomFile) {
     std.file.write(CUSTOM_OVERLAY_PATH, projInfo.customOverlay.data);
 
     if (coGameInfo(projInfo.gameVer).hostSubfile == CustomOverlayGameData.USE_WHOLE_FILE) {
-      std.file.write(CUSTOM_OVERLAY_PATH, projInfo.customOverlay.data);
       copy(CUSTOM_OVERLAY_PATH, buildPath(ROM_FILES_FOLDER, "data", coGameInfo(projInfo.gameVer).hostFile));
     }
     else {
-      auto coSubfile = unpackCustomOverlayNarc(projInfo.gameVer, projInfo.isFollowingPlatinum);
-
-      copy(CUSTOM_OVERLAY_PATH, coSubfile);
-
-      packCustomOverlayNarc(projInfo.gameVer, projInfo.isFollowingPlatinum);
+      packCustomOverlayNarc(projInfo.customOverlay.data, projInfo.gameVer, projInfo.isFollowingPlatinum);
     }
   }
 
@@ -750,39 +749,30 @@ ubyte[4] extractCOBranchCode(GameVer gameVer, string baseFolder = ROM_FILES_FOLD
   return branchCode;
 }
 
-string unpackCustomOverlayNarc(GameVer gameVer, bool isFollowingPlat, string baseFolder = ROM_FILES_FOLDER) {
-  auto knarcPath = buildPath(thisExePath.dirName, "knarc");
-
+ubyte[] unpackCustomOverlayNarc(GameVer gameVer, bool isFollowingPlat, string baseFolder = ROM_FILES_FOLDER) {
   auto coGameData = &coGameInfo(gameVer);
 
-  auto narcPath    = buildPath(baseFolder, "data", coGameData.hostFile);
-  auto extractPath = buildPath(TEMP_FOLDER, "weather_sys");
+  auto narcPath = buildPath(baseFolder, "data", coGameData.hostFile);
 
-  mkdir(extractPath);
+  auto parseResult = parseNarc(&tTempStorage, cast(ubyte[]) std.file.read(narcPath));
 
-  auto knarcResult = execute( [
-    knarcPath, "-d", extractPath, "-u", narcPath,
-  ]);
+  ushort subfileNum = isFollowingPlat ? FOLLOWING_PLAT_CO_SUBFILE : coGameData.hostSubfile;
+  auto subfile = fileById(parseResult.narc, subfileNum);
 
-  auto subfileNum = isFollowingPlat ? FOLLOWING_PLAT_CO_SUBFILE : coGameData.hostSubfile;
-
-  //knarc will unfortunatey not spit out predictable filenames. have to search the directory ourselves
-  auto re = regex(`weather_sys_[0]*` ~ subfileNum.to!string);
-  string subfile = dirEntries(extractPath, SpanMode.shallow).filter!(x => !matchFirst(x.name, re).empty).front.name;
-
-  return subfile;
+  return subfile.data;
 }
 
-void packCustomOverlayNarc(GameVer gameVer, bool isFollowingPlat, string baseFolder = ROM_FILES_FOLDER) {
-  auto knarcPath = buildPath(thisExePath.dirName, "knarc");
-
+void packCustomOverlayNarc(ubyte[] data, GameVer gameVer, bool isFollowingPlat, string baseFolder = ROM_FILES_FOLDER) {
   auto coGameData = &coGameInfo(gameVer);
 
-  auto narcPath    = buildPath(baseFolder, "data", coGameData.hostFile);
-  auto extractPath = buildPath(TEMP_FOLDER, "weather_sys");
+  auto narcPath = buildPath(baseFolder, "data", coGameData.hostFile);
+  auto parseResult = parseNarc(&tTempStorage, cast(ubyte[]) std.file.read(narcPath));
+  auto narc = parseResult.narc;
 
-  auto knarcResult = execute( [
-    knarcPath, "-d", extractPath, "-p", narcPath,
-  ]);
+  auto subfile = fileById(narc, cast(ushort) coGameData.hostSubfile);
+  subfile.data = data;
+
+  auto outBytes = packNarc(&tTempStorage, narc);
+  std.file.write(narcPath, outBytes);
 }
 
