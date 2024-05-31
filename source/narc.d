@@ -440,7 +440,7 @@ NarcParseResult parseNarc(Arena* arena, ubyte[] bytes) {
 }
 
 // @Speed: This is an O(n) search.
-NarcFile* getFileByName(Narc* narc, const(char)[] name) {
+NarcFile* fileByName(Narc* narc, const(char)[] name) {
   foreach (ref file; narc.files) {
     if (file.name == name) return &file;
   }
@@ -448,6 +448,17 @@ NarcFile* getFileByName(Narc* narc, const(char)[] name) {
     if (file.name == name) return &file;
   }
   return cast(NarcFile*) &gNullFile;
+}
+
+NarcFile* fileById(Narc* narc, ushort id) {
+  // Should I return gNullFile on bounds error?
+
+  if (id < 0xF000) {
+    return &narc.files[id];
+  }
+  else {
+    return &narc.directories[id & 0x0FFF];
+  }
 }
 
 ubyte[] packNarc(Arena* arena, Narc* narc) {
