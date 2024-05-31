@@ -17,12 +17,9 @@ Arena arenaMake(ubyte[] buffer) {
 }
 
 Arena arenaMake(size_t bytes) {
-  import core.stdc.stdlib : malloc;
-
-  ubyte* ptr = cast(ubyte*) malloc(bytes);
-  assert(ptr);
-
-  return arenaMake(ptr[0..bytes]);
+  // Allocate the backing buffer on the GC (for now) to ensure the GC doesn't prematurely free things, since it won't
+  // scan for pointers in buffers allocated from elsewhere by default.
+  return arenaMake(new ubyte[](bytes));
 }
 
 void arenaFree(Arena* arena) {
