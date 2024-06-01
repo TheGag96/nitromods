@@ -242,7 +242,7 @@ int build(string newRomFile) {
 
   mkdirRecurse(TEMP_FOLDER);
   mkdirRecurse(PREPROCESS_SOURCE_PATH);
-  //scope (exit) rmdirRecurse(TEMP_FOLDER);
+  scope (exit) rmdirRecurse(TEMP_FOLDER);
 
   //restore original overlay
   void restoreFile(string path) {
