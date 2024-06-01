@@ -241,6 +241,14 @@ NarcParseResult parseNarc(Arena* arena, ubyte[] bytes) {
     return result;
   }
 
+  if (firstFntEntry.numDirsOrParent * FntMainTableEntry.sizeof > fntSize) {
+    addError(
+      arena, &result, cast(uint) (index + firstFntEntry.numDirsOrParent.offsetof), Severity.error,
+      aprintf(arena, "FNT reports %u directories are present, but that's too many to fit in the FNT chunk of size %u.", firstFntEntry.numDirsOrParent, fntChunkHeader.size)
+    );
+    return result;
+  }
+
   FntMainTableEntry[] mainEntries = (cast(FntMainTableEntry*) &bytes[index])[0..firstFntEntry.numDirsOrParent];
 
   import std.stdio;
@@ -330,6 +338,10 @@ NarcParseResult parseNarc(Arena* arena, ubyte[] bytes) {
     // name and pointers to be filled in later...
   }
 
+  // Using this name to call the pattern of a NARC that only contains nameless files under a single root directory -
+  // see below.
+  bool flat = false;
+
   foreach (dirId, ref mainEntry; mainEntries) {
     bool isRoot = dirId == 0;
     uint runner = fntBase + mainEntry.subTableOffset;
@@ -367,6 +379,15 @@ NarcParseResult parseNarc(Arena* arena, ubyte[] bytes) {
       ubyte typeOrLength = bytes[runner];
       if (typeOrLength == 0) {
         // List terminated
+
+        // In some NARCs, there's a hack where the FNT contains a single main root entry with no filenames,
+        // accomplished using a sub-table offset to a zero byte WITHIN the main table entry's space!
+        // Trying to capture that here. Detection for this is squirrled away here to take advantage
+        // of the bounds checking for reading into that weird sub-table already done here.
+        if (dirId == 0 && mainEntries.length == 1 && subCount == 0) {
+          flat = true;
+        }
+
         break;
       }
 
@@ -434,6 +455,19 @@ NarcParseResult parseNarc(Arena* arena, ubyte[] bytes) {
     parent.last = lastFile;
   }
 
+  // If we found out the NARC is flat, we need to manually fix up the file hierarchy now, because it didn't get done
+  // in the loop above.
+  if (flat) {
+    foreach (i, ref file; result.narc.files) {
+      file.parent = &result.narc.directories[0];
+      if (i > 0)                          file.prev = &result.narc.files[i-1];
+      if (i < result.narc.files.length-1) file.next = &result.narc.files[i+1];
+    }
+
+    result.narc.directories[0].first = &result.narc.files[0];
+    result.narc.directories[0].last  = &result.narc.files[$-1];
+  }
+
   result.narc.root = &result.narc.directories[0];
 
   return result;
@@ -462,9 +496,8 @@ NarcFile* fileById(Narc* narc, ushort id) {
 }
 
 ubyte[] packNarc(Arena* arena, Narc* narc) {
-  ubyte* narcStart = arena.index;
-
-  auto header         = push!NarcHeader(arena);
+  auto header      = push!NarcHeader(arena);
+  ubyte* narcStart = cast(ubyte*) header;
 
   ubyte* fatStart        = arena.index;
   auto fatChunkHeader    = push!ChunkHeader(arena);
@@ -483,42 +516,65 @@ ubyte[] packNarc(Arena* arena, Narc* narc) {
 
   auto mainEntries = pushArray!FntMainTableEntry(arena, narc.directories.length);
 
-  foreach (dirId, ref file; narc.directories) {
-    bool wroteFirstFile = false;
+  // Detect whether this NARC is "flat" (single root directory, empty filenames).
+  // @TODO: It's not really good if any of the files have empty names in a non-flat NARC. Maybe check/assert for that?
+  bool flat = () {
+    if (mainEntries.length > 1) return false;
 
-    mainEntries[dirId].subTableOffset = cast(uint) (arena.index - fntBase);
-
-    if (dirId == 0) {
-      mainEntries[dirId].numDirsOrParent = cast(ushort) mainEntries.length;
-    }
-    else {
-      mainEntries[dirId].numDirsOrParent = file.parent.id;
+    foreach (ref file; narc.files) {
+      if (file.name.length) return false;
     }
 
-    foreach (subFile; linkedRange(file.first)) {
-      auto typeOrLength = push!ubyte(arena);
-      *typeOrLength = cast(ubyte) subFile.name.length;
-      if (isDirectory(*subFile)) {
-        *typeOrLength |= 0b10000000;
+    return true;
+  }();
+
+  if (flat) {
+    // Hack that I've seen in officially-packed "flat" NARCs: This subTableOffset of 4 will point to a zero-byte within
+    // this very entry!
+    mainEntries[0] = FntMainTableEntry(subTableOffset : 4, subTableFirstFile : 0, numDirsOrParent : 1);
+  }
+  else {
+    foreach (dirId, ref file; narc.directories) {
+      bool wroteFirstFile = false;
+
+      mainEntries[dirId].subTableOffset = cast(uint) (arena.index - fntBase);
+
+      if (dirId == 0) {
+        mainEntries[dirId].numDirsOrParent = cast(ushort) mainEntries.length;
+      }
+      else {
+        mainEntries[dirId].numDirsOrParent = file.parent.id;
       }
 
-      copyArray(arena, subFile.name);
-      if (!isDirectory(*subFile) && !wroteFirstFile) {
-        wroteFirstFile = true;
-        mainEntries[dirId].subTableFirstFile = subFile.id;
+      foreach (subFile; linkedRange(file.first)) {
+        auto typeOrLength = push!ubyte(arena);
+        *typeOrLength = cast(ubyte) subFile.name.length;
+        if (isDirectory(*subFile)) {
+          *typeOrLength |= 0b10000000;
+        }
+
+        copyArray(arena, subFile.name);
+        if (!isDirectory(*subFile) && !wroteFirstFile) {
+          wroteFirstFile = true;
+          mainEntries[dirId].subTableFirstFile = subFile.id;
+        }
+
+        if (isDirectory(*subFile)) {
+          *push!ushort(arena) = subFile.id;
+        }
       }
 
-      if (isDirectory(*subFile)) {
-        *push!ushort(arena) = subFile.id;
-      }
+      pushBytes(arena, 1);  // 0 byte to end table
     }
+  }
 
-    pushBytes(arena, 1);  // 0 byte to end table
+  void padTo4Alignment() {
+    auto padding = pushBytesNoZero(arena, -(arena.index - narcStart) & (4-1));
+    padding[] = 0xFF;
   }
 
   // GBATEK says we need to pad 0xFFs to the nearest 4 bytes at the end of this chunk.
-  auto padding = pushBytesNoZero(arena, -(arena.index - narcStart) & (4-1));
-  padding[] = 0xFF;
+  padTo4Alignment();
 
   fntChunkHeader.size = cast(uint) (arena.index - fntStart);
 
@@ -531,6 +587,9 @@ ubyte[] packNarc(Arena* arena, Narc* narc) {
     fatEntries[i].start = cast(uint) (arena.index - imgBase);
     fatEntries[i].end   = cast(uint) (fatEntries[i].start + file.data.length);
     copyArray(arena, file.data);
+
+    // Pad to the nearest 4 bytes with 0xFFs, which seems to be how official NARCs are packed
+    padTo4Alignment();
   }
 
   imgChunkHeader.size = cast(uint) (arena.index - imgStart);
