@@ -545,6 +545,9 @@ uint getAddr(ref ProjectInfo projInfo, string destination, uint offset) {
 ubyte[] extractMachineCode(string path) {
   import elf;
 
+  //binary files will be used as-is
+  if (path.extension == ".bin") return cast(ubyte[]) read(path);
+
   auto codeElf = ELF.fromFile(path);
 
   // Concatenate all sections starting with .text, as there may be a .text section for each function.
