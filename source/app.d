@@ -215,8 +215,9 @@ int init(string romFile) {
     }
   }
 
+  // @TOOD: Replace these shell calls with direct OS calls or something...
   version (Windows) {
-    execute(["xcopy", "/e", ROM_FILES_ORIGINAL_FOLDER, ROM_FILES_FOLDER]);
+    execute(["xcopy", "/i", "/e", ROM_FILES_ORIGINAL_FOLDER, ROM_FILES_FOLDER]);
   }
   else version (Posix) {
     execute(["cp", "-r", ROM_FILES_ORIGINAL_FOLDER, ROM_FILES_FOLDER]);
