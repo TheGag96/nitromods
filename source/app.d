@@ -471,8 +471,13 @@ string compile(ref Mod mod, string filename, string includesFilename, string out
 
     case ".c":
       program = buildPath(gDevkitarmPath, "bin/arm-none-eabi-gcc");
-      options = ["-Wall", "-Os", "-std=c11", "-march=armv5te", "-mtune=arm946e-s", "-fomit-frame-pointer", "-ffast-math",
-                 "-mthumb", "-mthumb-interwork", "-fshort-enums", "-I" ~ gDevkitproPath ~ "/libnds/include", "-include", includesFilename, "-DARM9"];
+      options = [
+        "-Wall", "-Os", "-std=c11", "-march=armv5te", "-mtune=arm946e-s", "-fomit-frame-pointer", "-ffast-math",
+        "-mthumb", "-mthumb-interwork", "-fshort-enums",
+        "-I" ~ gDevkitproPath ~ "/libnds/include",
+        "-I" ~ gDevkitproPath ~ "/calico/include",
+        "-include", includesFilename, "-D__NDS__", "-DARM9",
+      ];
       break;
 
     case ".d":
